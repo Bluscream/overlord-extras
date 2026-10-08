@@ -1,0 +1,14 @@
+# Overlord runtime and IPC files
+ipc_in.txt
+ipc_out.txt
+ipc_in.tmp
+*.dmp
+*.log
+*.tmp
+__h2Exe
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
