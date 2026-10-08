@@ -150,7 +150,7 @@ local function buildRenderingOptions(menu)
         menu,
         "r_postAA",
         "Anti-Aliasing (Post-AA)",
-        "Post-processing anti-aliasing. NOTE: Set to 'Off' if experiencing crashes on Beta 4.",
+        "Post-processing anti-aliasing. Set to 'Off' to resolve VR rendering/stereo artifacts, blur, and crashes on Beta 4.",
         {
             { text = "Off", value = "Off" },
             { text = "FXAA", value = "FXAA" },
