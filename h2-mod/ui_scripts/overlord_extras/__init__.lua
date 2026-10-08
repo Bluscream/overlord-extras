@@ -146,19 +146,51 @@ end
 local function buildRenderingOptions(menu)
     createDivider(menu, "VR Rendering & Performance")
 
-    LUI.Options.CreateOptionButton(
+    local postAAOptions = {
+        { text = "Off", value = "Off" },
+        { text = "FXAA", value = "FXAA" },
+        { text = "SMAA 1x", value = "SMAA 1x" },
+        { text = "SMAA T2x", value = "SMAA T2x" },
+        { text = "Filmic SMAA 1x", value = "Filmic SMAA 1x" },
+        { text = "Filmic SMAA T2x", value = "Filmic SMAA T2x" }
+    }
+
+    local function getPostAAText()
+        local currentVal = Engine.GetDvarString and Engine.GetDvarString("r_postAA") or "Off"
+        for _, opt in ipairs(postAAOptions) do
+            if opt.value == currentVal then
+                return opt.text
+            end
+        end
+        return currentVal
+    end
+
+    local function cyclePostAA(delta)
+        local currentVal = Engine.GetDvarString and Engine.GetDvarString("r_postAA") or "Off"
+        local idx = 1
+        for i, opt in ipairs(postAAOptions) do
+            if opt.value == currentVal then
+                idx = i
+                break
+            end
+        end
+        local nextIdx = idx + delta
+        if nextIdx > #postAAOptions then
+            nextIdx = 1
+        elseif nextIdx < 1 then
+            nextIdx = #postAAOptions
+        end
+        Engine.SetDvarString("r_postAA", postAAOptions[nextIdx].value)
+    end
+
+    LUI.Options.AddButtonOptionVariant(
         menu,
-        "r_postAA",
+        GenericButtonSettings.Variants.Select,
         "Anti-Aliasing (Post-AA)",
         "Post-processing anti-aliasing. Set to 'Off' to resolve VR rendering/stereo artifacts, blur, and crashes on Beta 4.",
-        {
-            { text = "Off", value = "Off" },
-            { text = "FXAA", value = "FXAA" },
-            { text = "SMAA 1x", value = "SMAA 1x" },
-            { text = "SMAA T2x", value = "SMAA T2x" },
-            { text = "Filmic SMAA 1x", value = "Filmic SMAA 1x" },
-            { text = "Filmic SMAA T2x", value = "Filmic SMAA T2x" }
-        }
+        getPostAAText,
+        function() cyclePostAA(1) end,
+        function() cyclePostAA(-1) end
     )
 
     LUI.Options.CreateOptionButton(
