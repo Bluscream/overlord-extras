@@ -652,6 +652,42 @@ sample_player_state() {
   ipc_send_and_wait "eval: ${lua}" 2>/dev/null | sed -n 's/^\[LUA\] => "\(.*\)"$/\1/p'
 }
 
+# Read the VR state that only exists on the Lua side.
+#
+# These are table calls, not dvar reads, so none of the dvar-registration
+# hazard applies. Both are feature-tested, because an older Overlord build may
+# not expose them.
+#
+# camera.getposition() returns the live render camera origin: camera.cpp copies
+# game::refdef->org into camera_origin every frame, so in VR this is the
+# headset-driven VIEW position -- distinct from the GSC origin above, which is
+# the player's feet. There is no matching getangles, so head ROTATION is not
+# reachable from Lua at all.
+#
+# vr_weapon_hud.source(i) is bounds-checked natively (`if(index>=source_count)
+# return {}`), so a bad index is harmless. source_count is 4: index = feed*2 +
+# hand, ordered primary left/right then underbarrel left/right.
+#
+# One caveat: source() is not a pure read -- it copies snapshots[i] into
+# queried[i], which the real HUD's commit() later promotes to rendered[i].
+# Calling it here refreshes that staging slot with the current snapshot, which
+# is what the HUD's own next tick would do anyway, so it is benign. It is not
+# somewhere to add a write.
+VR_HUD_SLOT_LABELS=("primary/left" "primary/right" "underbarrel/left" "underbarrel/right")
+
+sample_vr_state() {
+  local lua='local o={}; '
+  lua+='if type(camera)=="table" and type(camera.getposition)=="function" then local ok,p=pcall(camera.getposition); if ok and type(p)=="table" and p.x then o[#o+1]="view="..math.floor(p.x+0.5).." "..math.floor(p.y+0.5).." "..math.floor(p.z+0.5) end end; '
+  lua+='if type(vr_weapon_hud)=="table" then '
+  lua+='local oka,a=pcall(vr_weapon_hud.active); o[#o+1]="carry="..tostring(oka and a); '
+  lua+='local okc,n=pcall(vr_weapon_hud.count); n=(okc and n) or 0; o[#o+1]="sources="..tostring(n); '
+  lua+='for i=0,n-1 do local oks,s=pcall(vr_weapon_hud.source,i); '
+  lua+='if oks and type(s)=="table" and s.valid then o[#o+1]="src"..i.."="..tostring(s.name)..";"..tostring(s.loaded)..";"..tostring(s.capacity)..";"..tostring(s.reserve)..";"..tostring(s.maximumReserve) end end '
+  lua+='end; return table.concat(o,"|")'
+
+  ipc_send_and_wait "eval: ${lua}" 2>/dev/null | sed -n 's/^\[LUA\] => "\(.*\)"$/\1/p'
+}
+
 show_player_status() {
   local pids
   pids="$(get_game_pids)"
@@ -737,7 +773,53 @@ show_player_status() {
       [[ -n "${wpn}" ]] && printf "  - %s\n" "${wpn}"
     done
   fi
+
+  show_vr_state
   printf "\n"
+}
+
+# The Lua-side VR state, which has no overlap with the GSC fields above.
+show_vr_state() {
+  local raw
+  raw="$(sample_vr_state)"
+  [[ -z "${raw}" ]] && return 0
+
+  declare -A vr
+  local pair
+  while IFS= read -r pair; do
+    [[ -z "${pair}" ]] && continue
+    vr["${pair%%=*}"]="${pair#*=}"
+  done < <(printf '%s\n' "${raw}" | tr '|' '\n')
+
+  # "View origin" is the headset-driven render camera; "Origin" above is the
+  # player's feet from GSC. They differ by roughly eye height plus however far
+  # you have leaned.
+  if [[ -n "${vr[view]:-}" ]]; then
+    printf "%-25s: %s\n" "View origin (camera)" "${vr[view]}"
+  else
+    printf "%-25s: %s\n" "View origin (camera)" "unavailable (no camera.getposition)"
+  fi
+
+  if [[ -n "${vr[carry]:-}" ]]; then
+    printf "%-25s: %s\n" "VR carry active" "${vr[carry]}"
+  fi
+
+  local i label row shown=0
+  local n_name n_loaded n_cap n_res n_maxres
+  for i in 0 1 2 3; do
+    row="${vr[src${i}]:-}"
+    [[ -z "${row}" ]] && continue
+    ((shown == 0)) && printf "%-25s:\n" "Held weapon feeds"
+    shown=1
+    label="${VR_HUD_SLOT_LABELS[i]}"
+    # name;loaded;capacity;reserve;maximumReserve
+    IFS=';' read -r n_name n_loaded n_cap n_res n_maxres <<<"${row}"
+    printf "  %-19s %s  %s/%s in clip, %s/%s reserve\n" \
+      "${label}" "${n_name}" "${n_loaded}" "${n_cap}" "${n_res}" "${n_maxres}"
+  done
+  if [[ -n "${vr[sources]:-}" ]] && ((shown == 0)); then
+    printf "%-25s: none active (%s slots)\n" "Held weapon feeds" "${vr[sources]}"
+  fi
 }
 
 # ==============================================================================
