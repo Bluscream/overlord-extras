@@ -118,6 +118,14 @@ deploy_extras() {
   ln -sf "${REAL_SCRIPT}" "${GAME_DIR}/overlord.sh"
 
   log_success "Overlord Extras successfully deployed."
+
+  # ui_scripts are read once at UI load and GSC once at level load, so a game
+  # that is already running keeps whatever it started with. This applies to
+  # every module, not just one feature.
+  if [[ -n "$(get_game_pids)" ]]; then
+    log_warn "The game is running; it is still using the modules it loaded at startup."
+    log_warn "Restart it to pick these up."
+  fi
 }
 
 # ==============================================================================
@@ -613,6 +621,26 @@ show_status() {
 # C++ below Lua. Never add a name to this list without registering it first.
 PLAYER_STATE_FIELDS=(tick origin angles health stance weapon weapon_count weapons)
 
+# Make every name safe to read, without asking whether it exists.
+#
+# Writing a dvar is always safe -- it creates the name if absent. Reading one
+# that was never registered faults in the native accessor and kills the game.
+# So write all of them blank first, then read.
+#
+# Blanking costs nothing: player_state.gsc republishes at 4Hz, so a live level
+# refills them within ~250ms. If no level is loaded there is nothing to
+# preserve, and the blanks are exactly the "not published" signal. This is why
+# the reader does not care which ui_scripts/_common the running game happens to
+# have loaded.
+ensure_player_state_dvars() {
+  local lua='' f
+  for f in "${PLAYER_STATE_FIELDS[@]}"; do
+    lua+="Engine.Exec('set overlord_ps_${f} \"\"'); "
+  done
+  lua+='return "registered"'
+  ipc_send_and_wait "eval: ${lua}" >/dev/null 2>&1 || return 1
+}
+
 sample_player_state() {
   # Built as one line: the IPC bridge is line-oriented and rejects embedded
   # newlines.
@@ -632,28 +660,13 @@ show_player_status() {
     return 1
   fi
 
-  # Refuse to read if the running game predates the deployed _common.
-  #
-  # These dvars only exist because ui_scripts/_common registers them at UI load
-  # time. A game that was already running when the module was deployed never
-  # ran that code, so the names do not exist in it -- and reading a name that
-  # does not exist faults in the native accessor and kills the game. This check
-  # is entirely host-side (process start time vs. file mtime) precisely because
-  # asking the game is the dangerous operation.
-  local deployed_at proc_started now elapsed
-  deployed_at="$(stat -c %Y "${GAME_DIR}/h2-mod/ui_scripts/_common/__init__.lua" 2>/dev/null || echo 0)"
-  elapsed="$(ps -o etimes= -p "$(printf '%s' "${pids}" | head -n 1 | awk '{print $1}')" 2>/dev/null | tr -d ' ')"
-  if [[ -n "${elapsed}" && "${elapsed}" =~ ^[0-9]+$ && "${deployed_at}" != "0" ]]; then
-    now="$(date +%s)"
-    proc_started=$((now - elapsed))
-    if ((proc_started < deployed_at)); then
-      log_error "The running game started before the current ui_scripts/_common was deployed."
-      printf "\nIt never registered the overlord_ps_* dvars, and reading an unregistered\n"
-      printf "dvar faults inside the native accessor (0xC0000005) -- it would crash the\n"
-      printf "game. Restart it so the current modules load, then try again.\n\n"
-      return 1
-    fi
-  fi
+  # Engine.Exec is queued, so give the writes a frame to land and the GSC a
+  # publish cycle (250ms) to refill them.
+  ensure_player_state_dvars || {
+    log_error "No response from the IPC bridge."
+    return 1
+  }
+  sleep 0.5
 
   local first second
   first="$(sample_player_state)"
