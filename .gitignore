@@ -12,3 +12,10 @@ __h2Exe
 Thumbs.db
 .idea/
 .vscode/
+
+# Python
+__pycache__/
+*.pyc
+
+# Steam config backups written by tools/steam_shortcut.py
+*.vdf.bak.*

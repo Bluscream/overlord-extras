@@ -24,7 +24,7 @@ local function serialize(v, depth)
         for k, val in pairs(v) do
             count = count + 1
             if count > 20 then
-                table.insert(items, "... (" .. tostring(count) .. "+ items)")
+                table.insert(items, "... (truncated at 20 entries)")
                 break
             end
             table.insert(items, tostring(k) .. " = " .. serialize(val, depth + 1))
@@ -157,11 +157,11 @@ local function handle_payload(raw)
             local var, val = string.match(dvar_part, "^([^=]+)=(.*)$")
             if var and val then
                 -- Set dvar
-                if Engine and Engine.SetDvar then
-                    Engine.SetDvar(var, val)
+                if Engine and type(Engine.SetDvarString) == "function" then
+                    Engine.SetDvarString(var, val)
                     table.insert(out_parts, "[DVAR SET] " .. var .. " = " .. val)
                 else
-                    table.insert(out_parts, "[DVAR ERROR] Engine.SetDvar not available")
+                    table.insert(out_parts, "[DVAR ERROR] Engine.SetDvarString not available")
                     all_ok = false
                 end
             else
@@ -218,7 +218,16 @@ local function poll_tick()
     io.removefile(IN_PATH)
 
     if raw and #raw > 0 then
-        local response = handle_payload(raw)
+        -- The request file is already gone by this point, so an error in
+        -- handle_payload would leave the caller waiting out its timeout and
+        -- reporting a connection problem. Answer with the error instead.
+        local ok, response = pcall(handle_payload, raw)
+        if not ok then
+            local req_id = string.match(raw, "id:%s*([^\r\n]+)")
+            response = (req_id and ("id: " .. req_id .. "\n") or "")
+                .. "status: error\noutput:\n[BRIDGE ERROR] "
+                .. tostring(response) .. "\n"
+        end
         io.writefile(OUT_PATH, response, false)
     end
 end
@@ -253,7 +262,8 @@ local function attach_poller()
     poller_elem.id = "AgentIPCPollerElement"
 
     -- 200ms polling timer
-    local timer = LUI.UITimer.new(200, "agent_ipc_pulse")
+    local POLL_INTERVAL_MS = 200
+    local timer = LUI.UITimer.new(POLL_INTERVAL_MS, "agent_ipc_pulse")
     poller_elem:addElement(timer)
     poller_elem:registerEventHandler("agent_ipc_pulse", function()
         pcall(poll_tick)
@@ -261,7 +271,7 @@ local function attach_poller()
 
     local ok, err = pcall(function() root:addElement(poller_elem) end)
     if ok then
-        print("[Agent IPC] Poller attached to root successfully (50ms interval)")
+        print(string.format("[Agent IPC] Poller attached to root (%dms interval)", POLL_INTERVAL_MS))
         -- Write initial readiness indicator
         io.writefile(OUT_PATH, "status: ready\noutput: Agent IPC Bridge active\n", false)
         return true

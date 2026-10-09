@@ -1,14 +1,49 @@
 -- Cheats Menu Module for Overlord / MW2CR
--- Provides an in-game Cheats submenu in the Pause Menu (and Frontend Campaign Menu)
--- Supports Godmode, Demigod, Notarget, Noclip, UFO, Refills, Full Weapon Armory,
--- Special Knives, Mission Items, Throwables & Fun Cheats, and Model Spawning.
-
-if (Engine.InFrontend and Engine.InFrontend()) then
-    -- Also allow exploring from campaign menu if desired, or skip
-end
+-- An in-game Cheats submenu for the VR pause menu: damage protection, AI
+-- targeting, sustained ammunition, one-shot refills, a weapon armory, mission
+-- items, throwables, and static model placement.
+--
+-- Gated on the `overlord_cheats_enabled` dvar, which ui_scripts/overlord_extras
+-- registers and toggles. This module only ever reads it.
 
 local function ExecCmd(cmd)
     Engine.Exec(cmd)
+end
+
+-- Overlord's launcher owns three cheat preferences and re-applies them
+-- idempotently on the server scheduler. Firing `god`/`notarget` as console
+-- toggles fights that loop: the launcher reasserts its own value on the next
+-- tick and the menu and the launcher's VR Settings page disagree. Set the
+-- preference instead, so pressing a button twice is harmless.
+-- Contract: docs/vr-official-cheats.md in the Overlord source tree.
+local CHEAT_HEALTH_DVAR = "vr_cheatHealth"      -- off | demigod | god
+local CHEAT_NOTARGET_DVAR = "vr_cheatNotarget"  -- off | on
+local CHEAT_AMMO_DVAR = "vr_cheatAmmo"          -- off | reserve | infinite
+
+-- Engine.SetDvarString is absent on some builds, and calling a nil value out of
+-- a LUI event handler surfaces as an access violation rather than a Lua error.
+local function SetDvarString(dvar, value)
+    if type(Engine.SetDvarString) == "function" then
+        Engine.SetDvarString(dvar, value)
+    else
+        Engine.Exec(string.format("set %s %s", dvar, value))
+    end
+end
+
+local function IsCheatsUnlocked()
+    if type(Engine.GetDvarBool) ~= "function" then
+        return false
+    end
+    -- An unregistered dvar reads back nil, and `nil` is falsy, so this stays
+    -- locked rather than erroring if overlord_extras has not loaded yet.
+    return Engine.GetDvarBool("overlord_cheats_enabled") == true
+end
+
+-- A preference button, as opposed to a toggle: it sets one known value.
+local function SetChoice(menu, label, dvar, value, desc)
+    menu:AddButton(label, function()
+        SetDvarString(dvar, value)
+    end, nil, true, nil, { desc_text = desc })
 end
 
 local function createDivider(menu, text)
@@ -169,7 +204,7 @@ local MODELS_MISSION_ITEMS = {
     { id = "viewmodel_commando_knife_bloody", name = "Bloody Commando Knife", desc = "Bloodied combat knife model" },
     { id = "wpn_h1_melee_rifle_bayonet_vm", name = "Rifle Bayonet Knife", desc = "Green Beret tactical bayonet model" },
     { id = "h2_cheat_pomegranate", name = "Pomegranate Prop", desc = "Pomegranate fruit projectile model" },
-    { id = "h2_cheat_soccer_ball", name = "Soccer Ball Prop", desc = "Physics soccer ball prop model" },
+    { id = "h2_viewmodel_cheat_soccer_ball", name = "Soccer Ball Prop", desc = "Physics soccer ball prop model" },
     { id = "com_laptop_open", name = "Enemy Intel Laptop (Open)", desc = "Campaign collectible enemy intel laptop" },
     { id = "com_laptop_closed", name = "Intel Laptop (Closed)", desc = "Closed tactical field laptop" },
     { id = "prop_briefcase", name = "Arcadia Panic Room Briefcase", desc = "Mission objective documents briefcase" },
@@ -211,7 +246,7 @@ local function PopulateModelList(menu, list)
         menu:AddButton(item.name, function()
             ExecCmd("spawn_xmodel " .. item.id)
         end, nil, true, nil, {
-            desc_text = item.desc .. " [Command: spawn_xmodel " .. item.id .. "]"
+            desc_text = item.desc .. " [static model: spawn_xmodel " .. item.id .. "]"
         })
     end
 end
@@ -278,7 +313,7 @@ LUI.MenuBuilder.registerType("cheats_throwable_menu", function(root)
 end)
 
 LUI.MenuBuilder.registerType("cheats_models_menu", function(root)
-    return CreateSubmenu(root, "Spawn Props & Equipment", function(menu, div)
+    return CreateSubmenu(root, "Place Prop Models (Static)", function(menu, div)
         div(menu, "Scene Cleanup")
         menu:AddButton("^1[CLEAR ALL SPAWNED MODELS]^7", function()
             ExecCmd("clear_spawned_xmodels")
@@ -286,7 +321,7 @@ LUI.MenuBuilder.registerType("cheats_models_menu", function(root)
             desc_text = "Remove all models spawned into the scene"
         })
 
-        div(menu, "Mission Props & Interactive Gear")
+        div(menu, "Mission Props (Static, No Collision)")
         PopulateModelList(menu, MODELS_MISSION_ITEMS)
     end)
 end)
@@ -294,37 +329,16 @@ end)
 LUI.MenuBuilder.registerType("cheats_characters_menu", function(root)
     return CreateSubmenu(root, "Characters & NPCs", function(menu, div)
         div(menu, "Living Combat AI Spawner")
-        menu:AddButton("^2[SPAWN ENEMY SOLDIER (AI)]^7", function()
-            if Engine.SetDvarString then
-                Engine.SetDvarString("cheat_spawn_ai", "axis")
-            else
-                Engine.Exec("set cheat_spawn_ai axis")
-            end
-        end, nil, true, nil, {
-            desc_text = "Spawns an active combat enemy soldier with AI, weapon and behavior"
-        })
+        -- The GSC side (h2-mod/scripts/actor_spawner.gsc) polls this dvar and
+        -- clears it on read, so it acts as a one-shot request rather than a mode.
+        SetChoice(menu, "^2[SPAWN ENEMY SOLDIER (AI)]^7", "cheat_spawn_ai", "axis",
+            "Spawns a live enemy soldier with AI, a weapon, and combat behaviour.")
+        SetChoice(menu, "^2[SPAWN FRIENDLY ALLY (AI)]^7", "cheat_spawn_ai", "allies",
+            "Spawns a live allied soldier with AI, a weapon, and combat behaviour.")
+        SetChoice(menu, "^3[SPAWN RANDOM COMBATANT (AI)]^7", "cheat_spawn_ai", "any",
+            "Spawns a live soldier from whichever spawners this level provides.")
 
-        menu:AddButton("^2[SPAWN FRIENDLY ALLY (AI)]^7", function()
-            if Engine.SetDvarString then
-                Engine.SetDvarString("cheat_spawn_ai", "allies")
-            else
-                Engine.Exec("set cheat_spawn_ai allies")
-            end
-        end, nil, true, nil, {
-            desc_text = "Spawns an active friendly allied combat soldier with AI"
-        })
-
-        menu:AddButton("^3[SPAWN RANDOM COMBATANT (AI)]^7", function()
-            if Engine.SetDvarString then
-                Engine.SetDvarString("cheat_spawn_ai", "any")
-            else
-                Engine.Exec("set cheat_spawn_ai any")
-            end
-        end, nil, true, nil, {
-            desc_text = "Spawns a random active AI soldier into the scene"
-        })
-
-        div(menu, "Static 3D Character Models")
+        div(menu, "Static Character Models (No AI)")
         menu:AddButton("^1[CLEAR ALL SPAWNED 3D MODELS]^7", function()
             ExecCmd("clear_spawned_xmodels")
         end, nil, true, nil, {
@@ -418,7 +432,7 @@ end)
 
 -- Main Cheats Menu
 LUI.MenuBuilder.registerType("cheats_menu", function(root)
-    local isUnlocked = Engine.GetDvarBool and Engine.GetDvarBool("overlord_cheats_enabled")
+    local isUnlocked = IsCheatsUnlocked()
     if not isUnlocked then
         return CreateSubmenu(root, "Cheats Locked", function(menu)
             menu:AddButton("^1Cheats are currently disabled^7", function()
@@ -435,19 +449,23 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
     end
 
     return CreateSubmenu(root, "Cheats & Sandbox", function(menu, div)
-        div(menu, "Invulnerability & Flight")
-        menu:AddButton("^2Toggle Godmode^7", function()
-            ExecCmd("god")
-        end, nil, true, nil, { desc_text = "Toggle invulnerability against all damage (god)" })
+        div(menu, "Damage Protection")
+        SetChoice(menu, "^2Protection: Godmode^7", CHEAT_HEALTH_DVAR, "god",
+            "Immune to all damage. Scripted mission deaths still apply.")
+        SetChoice(menu, "^2Protection: Demigod^7", CHEAT_HEALTH_DVAR, "demigod",
+            "Immune to damage, but still flinches and shows hit feedback.")
+        SetChoice(menu, "^1Protection: Off^7", CHEAT_HEALTH_DVAR, "off",
+            "Take normal damage again.")
 
-        menu:AddButton("^2Toggle Demigod^7", function()
-            ExecCmd("demigod")
-        end, nil, true, nil, { desc_text = "Toggle demigod mode (invulnerable with health flinching)" })
+        div(menu, "AI Targeting")
+        SetChoice(menu, "^3No Target: On^7", CHEAT_NOTARGET_DVAR, "on",
+            "Enemies stop targeting you. Your model is still visible.")
+        SetChoice(menu, "^1No Target: Off^7", CHEAT_NOTARGET_DVAR, "off",
+            "Enemies target you normally again.")
 
-        menu:AddButton("^3Toggle No Target (Stealth)^7", function()
-            ExecCmd("notarget")
-        end, nil, true, nil, { desc_text = "Toggle enemies ignoring player presence (notarget)" })
-
+        div(menu, "Flight & Collision")
+        -- No launcher preference exists for these two, so they stay native
+        -- toggles and nothing re-applies them behind the menu's back.
         menu:AddButton("^5Toggle Noclip^7", function()
             ExecCmd("noclip")
         end, nil, true, nil, { desc_text = "Toggle noclip through walls and terrain (noclip)" })
@@ -456,7 +474,15 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
             ExecCmd("ufo")
         end, nil, true, nil, { desc_text = "Toggle free flight camera movement (ufo)" })
 
-        div(menu, "Health & Ammunition")
+        div(menu, "Sustained Ammunition")
+        SetChoice(menu, "^3Sustained Ammo: Infinite^7", CHEAT_AMMO_DVAR, "infinite",
+            "Never consume ammunition and never need to reload.")
+        SetChoice(menu, "^3Sustained Ammo: Infinite Reserve^7", CHEAT_AMMO_DVAR, "reserve",
+            "Reserve ammunition stays topped up; magazines still need reloading.")
+        SetChoice(menu, "^1Sustained Ammo: Off^7", CHEAT_AMMO_DVAR, "off",
+            "Consume ammunition normally again.")
+
+        div(menu, "One-Shot Refills")
         menu:AddButton("^2Refill Max Health^7", function()
             ExecCmd("give health")
         end, nil, true, nil, { desc_text = "Instantly restore player health to 100%" })
@@ -476,11 +502,11 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
 
         menu:AddButton("^4[SPAWN CHARACTERS & LIVING AI]^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_characters_menu")
-        end, nil, true, nil, { desc_text = "Spawn living combat AI soldiers or 3D character models" })
+        end, nil, true, nil, { desc_text = "Spawn living combat AI, or place static character models with no AI" })
 
-        menu:AddButton("^4[SPAWN PROPS & INTERACTIVE EQUIPMENT]^7", function()
+        menu:AddButton("^4[PLACE PROP MODELS (STATIC)]^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_models_menu")
-        end, nil, true, nil, { desc_text = "Spawn 3D world models: Laptops, Briefcase, DSM, UAV, Ice Picks" })
+        end, nil, true, nil, { desc_text = "Place static models in front of you: laptops, briefcase, DSM, UAV, ice picks. No collision or physics." })
 
         div(menu, "Inventory Control")
         menu:AddButton("^1Drop Current Weapon^7", function()
@@ -501,7 +527,7 @@ if LUI.onmenuopen then
             return
         end
 
-        local isUnlocked = Engine.GetDvarBool and Engine.GetDvarBool("overlord_cheats_enabled")
+        local isUnlocked = IsCheatsUnlocked()
         if not isUnlocked then
             menu:AddButton("^1CHEATS (LOCKED)^7", function()
                 LUI.FlowManager.RequestAddMenu(nil, "overlord_extras_menu")

@@ -1,0 +1,48 @@
+name: Check
+
+# Disabled: workflows do not run under this account, so an automatic trigger
+# would queue a job that is never picked up and any status check waiting on it
+# would block forever. Uncomment these if you fork this repository.
+#
+# on:
+#   push:
+#     branches: [main]
+#   pull_request:
+#     branches: [main]
+
+on:
+  workflow_dispatch:
+    inputs:
+      strict:
+        description: "Fail when an optional linter is missing instead of skipping it"
+        type: boolean
+        default: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck luajit lua-check
+          curl -fsSL -o /tmp/shfmt \
+            https://github.com/mvdan/sh/releases/latest/download/shfmt_v3.12.0_linux_amd64
+          sudo install -m 0755 /tmp/shfmt /usr/local/bin/shfmt
+          pipx install ruff
+
+      - name: Run the gate
+        run: tools/check.sh
+
+      - name: Assert nothing was skipped
+        if: ${{ inputs.strict }}
+        run: |
+          # The gate reports a missing linter as SKIP and still exits 0, which is
+          # right locally and wrong in CI, where every tool was just installed.
+          tools/check.sh | tee /tmp/gate.log
+          if grep -q 'SKIPPED CHECK' /tmp/gate.log; then
+            echo "A check was skipped although every tool should be present." >&2
+            exit 1
+          fi

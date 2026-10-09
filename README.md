@@ -28,9 +28,17 @@ Comprehensive companion suite, modular VR comfort settings, IPC developer CLI, r
   - Live Lua evaluation (`--lua 'return Engine.GetDvarString("mapname")'`).
   - Dvar inspection and modification (`--dvar cg_fov 95`).
   - Interactive REPL shell (`./overlord.sh -i`).
-- **Expanded Sandbox Armory & AI Spawner**
-  - Dynamic active mission weapon detection and spawning.
-  - Live AI combat actor spawner (Axis / Allies / Random).
+- **Cheats & Sandbox Pause Menu (`cheats`)**
+  - Locked behind the `overlord_cheats_enabled` dvar, toggled from VR Extras.
+  - Damage protection, AI targeting and sustained ammo are set as Overlord's own
+    launcher preferences (`vr_cheatHealth`, `vr_cheatNotarget`, `vr_cheatAmmo`)
+    rather than fired as `god`/`notarget` toggles, so the menu and the
+    launcher's VR Settings page cannot disagree. Noclip and UFO have no launcher
+    preference and remain native toggles.
+  - Weapon armory, mission items and throwables via `give`.
+  - Static model placement via `spawn_xmodel`: no entity, no collision, no AI.
+  - Live AI combat actor spawner (Axis / Allies / Random) through the GSC script.
+  - Dynamic active-mission weapon detection via `game.assetlist("weapon")`.
 
 ---
 
@@ -76,6 +84,22 @@ Comprehensive companion suite, modular VR comfort settings, IPC developer CLI, r
 ./overlord.sh -i
 ```
 
+### Development
+
+```bash
+# Run the quality gate: bash -n, shellcheck, shfmt, Lua 5.1 parse check,
+# luacheck, ruff, and a GSC brace-balance check.
+tools/check.sh
+
+# Deploy without launching, then hot-reload a module in a running game
+./overlord.sh deploy
+./overlord.sh --lua "dofile('h2-mod/ui_scripts/cheats/__init__.lua')"
+```
+
+GSC and LUI code cannot be tested outside the game. `tools/check.sh` is the only
+static gate that exists; behaviour has to be verified in game with
+`developer 1`.
+
 ### Process Management
 ```bash
 # Gracefully stop the game
@@ -94,26 +118,27 @@ Comprehensive companion suite, modular VR comfort settings, IPC developer CLI, r
 
 ```
 overlord-extras/
-├── overlord.sh                 # Master launcher, version switcher & IPC CLI
+├── overlord.sh                 # Launcher, version switcher, IPC CLI & process manager
+├── .luacheckrc                 # luacheck globals for the HavokScript host API
 ├── h2-mod/
 │   ├── scripts/
 │   │   └── actor_spawner.gsc   # Live AI combat actor spawner (GSC)
 │   └── ui_scripts/
-│       ├── overlord_extras/    # In-game VR settings menus (Comfort, Gameplay, Rendering)
-│       │   ├── __init__.lua
-│       │   ├── menu.lua
-│       │   ├── comfort.lua
-│       │   ├── gameplay.lua
-│       │   ├── rendering.lua
-│       │   └── cheats_option.lua
+│       ├── overlord_extras/    # VR settings menu; owns overlord_cheats_enabled
+│       │   └── __init__.lua
 │       ├── agent_ipc/          # Bidirectional host-to-game IPC bridge
 │       │   └── __init__.lua
-│       └── cheats/             # Enhanced Sandbox, Armory & Spawner pause menu
+│       └── cheats/             # Cheats, armory & spawner pause menu
 │           └── __init__.lua
 └── tools/
-    ├── overlord-cmd.sh         # Standalone IPC CLI
-    └── overlord-switcher.sh    # Standalone release switcher
+    ├── check.sh                # The quality gate: run this before committing
+    ├── steam_shortcut.py       # Safe shortcuts.vdf / config.vdf rewriting
+    └── README.md
 ```
+
+Each `ui_scripts/<name>/__init__.lua` must be self-contained: h2-mod's loader
+reads only that file, and `require` cannot resolve a sibling inside the same
+module folder.
 
 ---
 

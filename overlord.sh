@@ -18,7 +18,11 @@ H2_MOD_DIR="${GAME_DIR}/h2-mod"
 IPC_IN="${H2_MOD_DIR}/ipc_in.txt"
 IPC_TMP="${H2_MOD_DIR}/ipc_in.tmp"
 IPC_OUT="${H2_MOD_DIR}/ipc_out.txt"
-IPC_TIMEOUT_SEC=3
+IPC_TIMEOUT_SEC="${OVERLORD_IPC_TIMEOUT:-3}"
+
+# Every ui_scripts module this repo owns. deploy, uninstall and status all read
+# this list, so adding a module is a one-line change instead of three.
+UI_SCRIPT_MODULES=(overlord_extras agent_ipc cheats)
 
 # Steam shortcut specifics
 STEAM_SHORTCUT_ID="17596034734578728960"
@@ -29,32 +33,47 @@ DESKTOP_ENTRY="${HOME}/Desktop/Call of Duty Modern Warfare 2 (2019) VR.desktop"
 
 # Formatting helpers
 log_info() {
-  printf "[\033[1;34mINFO\033[0m] %s\n" "$*"
+  printf "[\033[1;34mINFO\033[0m] %s\n" "$(join_words "$@")"
 }
 
 log_success() {
-  printf "[\033[1;32mOK\033[0m] %s\n" "$*"
+  printf "[\033[1;32mOK\033[0m] %s\n" "$(join_words "$@")"
 }
 
 log_warn() {
-  printf "[\033[1;33mWARN\033[0m] %s\n" "$*" >&2
+  printf "[\033[1;33mWARN\033[0m] %s\n" "$(join_words "$@")" >&2
 }
 
 log_error() {
-  printf "[\033[1;31mERROR\033[0m] %s\n" "$*" >&2
+  printf "[\033[1;31mERROR\033[0m] %s\n" "$(join_words "$@")" >&2
 }
 
 die() {
-  log_error "$*"
+  log_error "$(join_words "$@")"
   exit 1
+}
+
+# `IFS=$'\n\t'` above makes "$*" and "${arr[*]}" join on a NEWLINE, not a space.
+# The IPC bridge treats every line as a separate command, so `cmd give m4` was
+# arriving in-game as two commands, `give` and `m4`. Join explicitly instead.
+join_words() {
+  local IFS=' '
+  printf '%s' "$*"
 }
 
 # ==============================================================================
 # Helper Functions: Process Detection
 # ==============================================================================
+# The launcher is overlord.exe, but the process that actually hosts the game is
+# h2-mod's cached h2_sp64_bnet_ship.exe. Omitting it made `status` report
+# STOPPED mid-session and left `kill` with nothing to kill.
+# Linux truncates comm to 15 bytes, so match the truncated form as well.
+GAME_PROCESS_PATTERN='overlord\.exe|MW2CR\.exe|h2_sp64_bnet_ship\.exe|h2_sp64_bnet_sh'
+
 get_game_pids() {
-  # Use pgrep -ax as per guidelines (never bare pgrep -f)
-  pgrep -ax "overlord.exe|MW2CR.exe" || true
+  # -ax matches the command NAME only, so the pattern is never tested against
+  # this script's own (enormous) argument list. Never use bare `pgrep -f`.
+  pgrep -ax "${GAME_PROCESS_PATTERN}" || true
 }
 
 is_game_running() {
@@ -71,23 +90,18 @@ deploy_extras() {
   [[ -d "${GAME_DIR}" ]] || die "Game directory not found at '${GAME_DIR}'"
 
   mkdir -p "${GAME_DIR}/h2-mod/ui_scripts" \
-           "${GAME_DIR}/h2-mod/scripts"
+    "${GAME_DIR}/h2-mod/scripts"
 
-  # Deploy UI scripts (overlord_extras, agent_ipc, cheats)
-  if [[ -d "${REPO_DIR}/h2-mod/ui_scripts/overlord_extras" ]]; then
-    mkdir -p "${GAME_DIR}/h2-mod/ui_scripts/overlord_extras"
-    cp -rf "${REPO_DIR}/h2-mod/ui_scripts/overlord_extras/." "${GAME_DIR}/h2-mod/ui_scripts/overlord_extras/"
-  fi
-
-  if [[ -d "${REPO_DIR}/h2-mod/ui_scripts/agent_ipc" ]]; then
-    mkdir -p "${GAME_DIR}/h2-mod/ui_scripts/agent_ipc"
-    cp -rf "${REPO_DIR}/h2-mod/ui_scripts/agent_ipc/." "${GAME_DIR}/h2-mod/ui_scripts/agent_ipc/"
-  fi
-
-  if [[ -d "${REPO_DIR}/h2-mod/ui_scripts/cheats" ]]; then
-    mkdir -p "${GAME_DIR}/h2-mod/ui_scripts/cheats"
-    cp -rf "${REPO_DIR}/h2-mod/ui_scripts/cheats/." "${GAME_DIR}/h2-mod/ui_scripts/cheats/"
-  fi
+  local module src
+  for module in "${UI_SCRIPT_MODULES[@]}"; do
+    src="${REPO_DIR}/h2-mod/ui_scripts/${module}"
+    # A module listed but absent from the repo is a packaging mistake, not an
+    # optional extra: skipping it silently ships an incomplete deployment.
+    [[ -d "${src}" ]] || die "ui_scripts module '${module}' is missing from the repo at '${src}'"
+    mkdir -p "${GAME_DIR}/h2-mod/ui_scripts/${module}"
+    cp -rf "${src}/." "${GAME_DIR}/h2-mod/ui_scripts/${module}/"
+    log_info "Deployed ui_scripts/${module}"
+  done
 
   # Deploy scripts (GSC actors, etc.)
   if [[ -d "${REPO_DIR}/h2-mod/scripts" ]]; then
@@ -116,7 +130,7 @@ check_extract_deps() {
   fi
 
   if [[ ${#missing[@]} -gt 0 ]]; then
-    die "Missing required utilities for version switching: ${missing[*]}"
+    die "Missing required utilities for version switching: $(join_words "${missing[@]}")"
   fi
 }
 
@@ -290,7 +304,7 @@ ${payload}"
   rm -f "${IPC_OUT}" 2>/dev/null || true
 
   # Atomic write
-  printf "%s\n" "${full_payload}" > "${IPC_TMP}"
+  printf "%s\n" "${full_payload}" >"${IPC_TMP}"
   mv -f "${IPC_TMP}" "${IPC_IN}"
 
   local start_time
@@ -298,18 +312,17 @@ ${payload}"
   local deadline=$((start_time + IPC_TIMEOUT_SEC))
 
   while [[ $(date +%s) -le ${deadline} ]]; do
-    if [[ -f "${IPC_OUT}" ]]; then
-      if grep -q "id: ${req_id}" "${IPC_OUT}" 2>/dev/null; then
-        local status
-        status=$(grep "^status:" "${IPC_OUT}" | awk '{print $2}')
-        sed -n '/^output:/,$ p' "${IPC_OUT}" | sed '1d'
+    # Match the id anchored to its own line, so a request id appearing inside a
+    # command's output cannot be mistaken for the response header.
+    if [[ -f "${IPC_OUT}" ]] && grep -qx "id: ${req_id}" "${IPC_OUT}" 2>/dev/null; then
+      local status
+      # head -n 1: only the header's status counts. A command whose output
+      # contains a "status:" line would otherwise decide its own exit code.
+      status="$(grep -m 1 "^status:" "${IPC_OUT}" | awk '{print $2}')"
+      sed -n '/^output:/,$ p' "${IPC_OUT}" | sed '1d'
 
-        if [[ "${status}" == "ok" ]]; then
-          return 0
-        else
-          return 2
-        fi
-      fi
+      [[ "${status}" == "ok" ]] && return 0
+      return 2
     fi
     sleep 0.05
   done
@@ -317,6 +330,17 @@ ${payload}"
   log_error "Timeout waiting for Overlord IPC response (${IPC_TIMEOUT_SEC}s). Is the game running?"
   rm -f "${IPC_IN}" 2>/dev/null || true
   return 1
+}
+
+# Join a console command's words with spaces before handing it to the
+# line-oriented bridge, and refuse an embedded newline rather than letting it
+# split into several commands in game.
+send_console_command() {
+  local command_line
+  command_line="$(join_words "$@")"
+  [[ "${command_line}" != *$'\n'* ]] ||
+    die "A console command must be a single line; the IPC bridge is line-oriented."
+  ipc_send_and_wait "${command_line}"
 }
 
 run_ipc_interactive() {
@@ -396,7 +420,7 @@ stop_game() {
       if [[ -n "$pid" ]]; then
         kill -15 "$pid" 2>/dev/null || true
       fi
-    done <<< "${remaining_pids}"
+    done <<<"${remaining_pids}"
   fi
 
   sleep 1
@@ -421,7 +445,7 @@ kill_game() {
         kill -9 "$pid" 2>/dev/null || true
         log_info "Killed PID $pid"
       fi
-    done <<< "${pids}"
+    done <<<"${pids}"
     log_success "Game processes terminated."
   fi
   rm -f "${IPC_IN}" "${IPC_TMP}" "${IPC_OUT}" 2>/dev/null || true
@@ -454,106 +478,24 @@ point_custom_steam_game() {
     sleep 2
   fi
 
-  # Backup shortcuts.vdf and config.vdf
-  cp "${STEAM_USERDATA_VDF}" "${STEAM_USERDATA_VDF}.bak.$(date +%s)"
-  [[ -f "${STEAM_CONFIG_VDF}" ]] && cp "${STEAM_CONFIG_VDF}" "${STEAM_CONFIG_VDF}.bak.$(date +%s)"
+  # Both files are rewritten by tools/steam_shortcut.py, which backs each one up,
+  # brace-matches the config.vdf entry instead of regexing it, and refuses to
+  # write shortcuts.vdf unless the serialized bytes parse back identically.
+  local helper="${REPO_DIR}/tools/steam_shortcut.py"
+  [[ -f "${helper}" ]] || die "Steam shortcut helper not found at '${helper}'"
 
-  python3 - <<PYEOF
-import struct, os, sys
+  python3 "${helper}" point \
+    --shortcuts "${STEAM_USERDATA_VDF}" \
+    --appid "${STEAM_APPID}" \
+    --appname "Call of Duty Modern Warfare 2 (2019) VR" \
+    --exe "${REAL_SCRIPT}" \
+    --start-dir "${GAME_DIR}/" \
+    --launch-options "launch"
 
-def parse_vdf(b):
-    idx = 0
-    def read_str():
-        nonlocal idx
-        end = b.find(b'\x00', idx)
-        s = b[idx:end].decode('utf-8', 'replace')
-        idx = end + 1
-        return s
-    def parse_dict():
-        nonlocal idx
-        res = {}
-        while idx < len(b):
-            t = b[idx]
-            idx += 1
-            if t == 8:
-                break
-            name = read_str()
-            if t == 0:
-                res[name] = parse_dict()
-            elif t == 1:
-                res[name] = read_str()
-            elif t == 2:
-                val = struct.unpack('<I', b[idx:idx+4])[0]
-                idx += 4
-                res[name] = val
-        return res
-    return parse_dict()
-
-def dump_vdf(d):
-    out = bytearray()
-    def write_dict(data):
-        for k, v in data.items():
-            if isinstance(v, dict):
-                out.append(0)
-                out.extend(k.encode('utf-8') + b'\x00')
-                write_dict(v)
-                out.append(8)
-            elif isinstance(v, str):
-                out.append(1)
-                out.extend(k.encode('utf-8') + b'\x00')
-                out.extend(v.encode('utf-8') + b'\x00')
-            elif isinstance(v, int):
-                out.append(2)
-                out.extend(k.encode('utf-8') + b'\x00')
-                out.extend(struct.pack('<I', v))
-    write_dict(d)
-    out.append(8)
-    return bytes(out)
-
-vdf_path = "${STEAM_USERDATA_VDF}"
-with open(vdf_path, 'rb') as f:
-    data = parse_vdf(f.read())
-
-shortcuts = data.get('shortcuts', {})
-target_key = None
-for k, v in shortcuts.items():
-    if v.get('appid') == int("${STEAM_APPID}") or 'Call of Duty Modern Warfare 2 (2019) VR' in v.get('appname', ''):
-        target_key = k
-        break
-
-if not target_key:
-    print("[ERROR] Could not find shortcut for Call of Duty Modern Warfare 2 in shortcuts.vdf", file=sys.stderr)
-    sys.exit(1)
-
-sc = shortcuts[target_key]
-sc['exe'] = '"${REAL_SCRIPT}"'
-sc['StartDir'] = '${GAME_DIR}/'
-sc['LaunchOptions'] = 'launch %command%'
-
-with open(vdf_path, 'wb') as f:
-    f.write(dump_vdf(data))
-
-print(f"[OK] Updated shortcut entry [{target_key}] exe to: {sc['exe']}")
-PYEOF
-
-  # Modify config.vdf to remove forced Proton on the Linux shell script shortcut
   if [[ -f "${STEAM_CONFIG_VDF}" ]]; then
-    python3 - <<PYEOF
-config_path = "${STEAM_CONFIG_VDF}"
-with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
-    content = f.read()
-
-# Remove forced CompatTool mapping for STEAM_APPID if present so Steam executes shell script natively
-appid = "${STEAM_APPID}"
-if appid in content:
-    import re
-    # Match block: "4096896093" \s* { [^}]+ }
-    pattern = r'(\t*"' + appid + r'"\s*\{[^}]*\})'
-    new_content = re.sub(pattern, '', content)
-    with open(config_path, 'w', encoding='utf-8') as f:
-        f.write(new_content)
-    print(f"[OK] Cleared forced Proton compatibility tool for {appid} in config.vdf")
-PYEOF
+    python3 "${helper}" clear-compat \
+      --config "${STEAM_CONFIG_VDF}" \
+      --appid "${STEAM_APPID}"
   fi
 
   if [[ -f "${DESKTOP_ENTRY}" ]]; then
@@ -575,19 +517,27 @@ uninstall() {
   local mode="${1:-extras}"
   log_info "Uninstall requested (mode: ${mode})..."
 
+  [[ -d "${GAME_DIR}" ]] || die "Game directory not found at '${GAME_DIR}'"
+
   log_info "Removing deployed Overlord Extras from game directory..."
-  rm -rf "${GAME_DIR}/h2-mod/ui_scripts/overlord_extras"
-  rm -rf "${GAME_DIR}/h2-mod/ui_scripts/agent_ipc"
+  local module target
+  for module in "${UI_SCRIPT_MODULES[@]}"; do
+    target="${GAME_DIR}/h2-mod/ui_scripts/${module}"
+    if [[ -d "${target}" ]]; then
+      rm -rf "${target}"
+      log_info "Removed ui_scripts/${module}"
+    fi
+  done
   rm -f "${GAME_DIR}/h2-mod/scripts/actor_spawner.gsc"
   rm -f "${GAME_DIR}/overlord.sh"
 
   if [[ "${mode}" == "--all" || "${mode}" == "all" || "${mode}" == "--full" ]]; then
     log_info "Removing Overlord binaries from game directory..."
     rm -f "${GAME_DIR}/overlord.exe" \
-          "${GAME_DIR}/overlord.pdb" \
-          "${GAME_DIR}/overlord.vrmanifest" \
-          "${GAME_DIR}/version.json" \
-          "${GAME_DIR}/release-info.json"
+      "${GAME_DIR}/overlord.pdb" \
+      "${GAME_DIR}/overlord.vrmanifest" \
+      "${GAME_DIR}/version.json" \
+      "${GAME_DIR}/release-info.json"
     log_success "All Overlord binaries and extras removed."
   else
     log_success "Overlord Extras removed. (Overlord core binaries retained. Pass 'uninstall --all' for full removal)."
@@ -610,11 +560,23 @@ show_status() {
     printf "%-25s: \033[1;30mSTOPPED\033[0m\n" "Game Process"
   fi
 
-  local extras_status="Missing"
-  if [[ -d "${GAME_DIR}/h2-mod/ui_scripts/overlord_extras" && -d "${GAME_DIR}/h2-mod/ui_scripts/agent_ipc" ]]; then
-    extras_status="Deployed"
+  local module deployed=() missing=()
+  for module in "${UI_SCRIPT_MODULES[@]}"; do
+    if [[ -f "${GAME_DIR}/h2-mod/ui_scripts/${module}/__init__.lua" ]]; then
+      deployed+=("${module}")
+    else
+      missing+=("${module}")
+    fi
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    printf "%-25s: Deployed (%s)\n" "Overlord Extras" "$(join_words "${deployed[@]}")"
+  else
+    printf "%-25s: \033[1;33mIncomplete\033[0m (missing: %s)\n" "Overlord Extras" "$(join_words "${missing[@]}")"
   fi
-  printf "%-25s: %s\n" "Overlord Extras" "${extras_status}"
+
+  local gsc_status="Missing"
+  [[ -f "${GAME_DIR}/h2-mod/scripts/actor_spawner.gsc" ]] && gsc_status="Deployed"
+  printf "%-25s: %s\n" "AI spawner (GSC)" "${gsc_status}"
 
   # Test IPC if running
   if [[ -n "${pids}" ]]; then
@@ -678,7 +640,7 @@ ACTION="$1"
 shift
 
 case "${ACTION}" in
-  launch|run|-singleplayer)
+  launch | run | -singleplayer)
     launch_game "$@"
     ;;
 
@@ -686,7 +648,7 @@ case "${ACTION}" in
     deploy_extras
     ;;
 
-  stop|exit)
+  stop | exit)
     stop_game
     ;;
 
@@ -698,7 +660,7 @@ case "${ACTION}" in
     show_status
     ;;
 
-  point-steam|steam-setup|link-steam)
+  point-steam | steam-setup | link-steam)
     point_custom_steam_game
     ;;
 
@@ -706,11 +668,11 @@ case "${ACTION}" in
     prompt_interactive_switch
     ;;
 
-  --versions|versions|--list|list)
+  --versions | versions | --list | list)
     list_versions
     ;;
 
-  --version|version|-v)
+  --version | version | -v)
     [[ $# -ge 1 ]] || die "Version flag requires a tag argument (e.g. v0.4.0-beta)."
     install_version "$1"
     ;;
@@ -723,12 +685,16 @@ case "${ACTION}" in
     uninstall "${1:-extras}"
     ;;
 
-  --lua|lua|-l)
+  --lua | lua | -l)
     [[ $# -ge 1 ]] || die "Missing Lua code to evaluate."
-    ipc_send_and_wait "lua: $*"
+    # A newline inside the payload would split one expression into several
+    # commands at the bridge, so reject it rather than mangling it silently.
+    LUA_CODE="$(join_words "$@")"
+    [[ "${LUA_CODE}" != *$'\n'* ]] || die "Lua code must be a single line; the IPC bridge is line-oriented."
+    ipc_send_and_wait "lua: ${LUA_CODE}"
     ;;
 
-  --dvar|dvar|-d)
+  --dvar | dvar | -d)
     [[ $# -ge 1 ]] || die "Missing dvar name."
     if [[ $# -eq 1 ]]; then
       ipc_send_and_wait "dvar: $1"
@@ -737,22 +703,37 @@ case "${ACTION}" in
     fi
     ;;
 
-  -i|--interactive|repl)
+  -i | --interactive | repl)
     run_ipc_interactive
     ;;
 
   cmd)
     [[ $# -ge 1 ]] || die "Missing console command."
-    ipc_send_and_wait "$*"
+    send_console_command "$@"
     ;;
 
-  --help|-h|help)
+  --help | -h | help)
     print_help
     exit 0
     ;;
 
+  -*)
+    # An unrecognised flag is a typo, not a console command. Sending it to the
+    # bridge turned `--staus` into a three-second wait and "Is the game running?".
+    log_error "Unknown option '${ACTION}'."
+    print_help >&2
+    exit 64
+    ;;
+
   *)
-    # If passed something like 'god' or 'noclip' or in-game command, pass to IPC
-    ipc_send_and_wait "${ACTION} $*"
+    # Bare words are passed through as console commands ('god', 'give m4'), but
+    # only when the game is actually up — otherwise a mistyped subcommand waits
+    # out the IPC timeout and reports a connection problem instead of the typo.
+    if ! is_game_running; then
+      log_error "Unknown command '${ACTION}', and no running game to send it to as a console command."
+      print_help >&2
+      exit 64
+    fi
+    send_console_command "${ACTION}" "$@"
     ;;
 esac
