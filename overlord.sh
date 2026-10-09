@@ -686,7 +686,10 @@ show_player_status() {
   while IFS= read -r pair; do
     [[ -z "${pair}" ]] && continue
     state["${pair%%=*}"]="${pair#*=}"
-  done < <(printf '%s' "${first}" | tr '|' '\n')
+    # printf '%s\n', not '%s': `read` returns non-zero on a final line with no
+    # newline terminator, so the loop body never runs for it and the LAST field
+    # is silently dropped. That field is `weapons`.
+  done < <(printf '%s\n' "${first}" | tr '|' '\n')
 
   local tick_a="${state[tick]:-}" tick_b=""
   tick_b="$(printf '%s' "${second}" | tr '|' '\n' | sed -n 's/^tick=//p')"
@@ -728,7 +731,9 @@ show_player_status() {
   local weapons="${state[weapons]:-}"
   if [[ -n "${weapons}" && "${weapons}" != "nil" ]]; then
     printf "%-25s:\n" "Inventory"
-    printf '%s' "${weapons}" | tr ',' '\n' | while IFS= read -r wpn; do
+    # '%s\n' for the same reason as above: a one-weapon list has no commas, so
+    # without the terminator the whole list would be dropped.
+    printf '%s\n' "${weapons}" | tr ',' '\n' | while IFS= read -r wpn; do
       [[ -n "${wpn}" ]] && printf "  - %s\n" "${wpn}"
     done
   fi
