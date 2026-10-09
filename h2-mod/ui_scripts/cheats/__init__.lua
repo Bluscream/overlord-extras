@@ -271,19 +271,31 @@ end)
 LUI.MenuBuilder.registerType("cheats_characters_menu", function(root)
     return CreateSubmenu(root, "Characters & NPCs", function(menu)
         menu:AddButton("^2[SPAWN LIVING ENEMY SOLDIER (AI)]^7", function()
-            Engine.SetDvar("cheat_spawn_ai", "axis")
+            if Engine.SetDvarString then
+                Engine.SetDvarString("cheat_spawn_ai", "axis")
+            else
+                Engine.Exec("set cheat_spawn_ai axis")
+            end
         end, nil, true, nil, {
             desc_text = "Spawns an active combat enemy soldier with AI, weapon and behavior"
         })
 
         menu:AddButton("^2[SPAWN LIVING FRIENDLY SOLDIER (AI)]^7", function()
-            Engine.SetDvar("cheat_spawn_ai", "allies")
+            if Engine.SetDvarString then
+                Engine.SetDvarString("cheat_spawn_ai", "allies")
+            else
+                Engine.Exec("set cheat_spawn_ai allies")
+            end
         end, nil, true, nil, {
             desc_text = "Spawns an active friendly allied combat soldier with AI"
         })
 
         menu:AddButton("^2[SPAWN RANDOM SOLDIER (AI)]^7", function()
-            Engine.SetDvar("cheat_spawn_ai", "any")
+            if Engine.SetDvarString then
+                Engine.SetDvarString("cheat_spawn_ai", "any")
+            else
+                Engine.Exec("set cheat_spawn_ai any")
+            end
         end, nil, true, nil, {
             desc_text = "Spawns a random active AI soldier into the scene"
         })
