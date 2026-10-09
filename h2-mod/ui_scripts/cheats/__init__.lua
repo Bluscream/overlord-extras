@@ -206,108 +206,137 @@ local function CreateSubmenu(root, title, populateFunc)
     return menu
 end
 
+-- ============================================================
+-- Where a given weapon physically goes in VR
+-- ============================================================
+-- `give` is not replaced in VR, but it does not put anything in your hands:
+-- command.cpp skips G_SelectWeapon whenever VR carry is active, so the weapon
+-- enters the native inventory and the carry system assigns it a body slot.
+-- free_slot() in weapon_carry.hpp tries right waist, then left waist, then the
+-- back, then the hidden extraction-only overflow queue -- and accepts() gates
+-- the waist slots behind policy.waist, which weapon_carry_profiles.hpp grants
+-- to an authored list, NOT to the native weapon category ("a native SMG
+-- category is not a waist permit").
+--
+-- Nothing here is guesswork; the lists below mirror that file exactly.
+local CARRY_HIP = "hip"       -- right hip, else left hip, else back
+local CARRY_BACK = "back"     -- back only; a second one is hidden in overflow
+local CARRY_BELLY = "belly"   -- its own abdominal slot, never dropped
+local CARRY_OFFHAND = "off"   -- not in the carry system at all
+
+local CARRY_TEXT = {
+    [CARRY_HIP] = "Goes to your right hip, then left hip, then back.",
+    [CARRY_BACK] = "Goes on your back -- too large for a hip slot. A second "
+        .. "back-slot weapon is stowed out of sight and has to be drawn by "
+        .. "reaching behind you.",
+    [CARRY_BELLY] = "Goes to its own abdominal slot and cannot be dropped.",
+    [CARRY_OFFHAND] = "Not handled by VR carry; it stays in its native "
+        .. "equipment or offhand slot.",
+}
+
+
 -- Weapon category tables (using authentic Call of Duty MW2 internal weapon IDs)
 local WEAPONS_AR = {
-    { id = "m4", name = "M4A1", desc = "Fully automatic assault rifle" },
-    { id = "m4m203_reflex", name = "M4A1 w/ M203 & Reflex", desc = "M4A1 equipped with grenade launcher and optic" },
-    { id = "m4_silencer", name = "M4A1 Suppressed", desc = "M4A1 with silencer" },
-    { id = "m16", name = "M16A4", desc = "3-round burst assault rifle" },
-    { id = "m16_grenadier", name = "M16A4 Grenadier", desc = "M16A4 with M203 grenade launcher" },
-    { id = "ak47", name = "AK-47", desc = "High caliber fully automatic rifle" },
-    { id = "ak47_grenadier", name = "AK-47 w/ GP-25", desc = "AK-47 with GP-25 underbarrel grenade launcher" },
-    { id = "scar_h", name = "SCAR-H", desc = "High damage battle rifle" },
-    { id = "famas", name = "FAMAS", desc = "3-round burst bullpup assault rifle" },
-    { id = "fal", name = "FAL", desc = "Semi-automatic battle rifle" },
-    { id = "tavor", name = "TAR-21 (Tavor)", desc = "Bullpup assault rifle with high fire rate" },
-    { id = "masada", name = "ACR (Masada)", desc = "Low recoil assault rifle" },
-    { id = "fn2000", name = "F2000", desc = "High rate of fire bullpup assault rifle" }
+    { id = "m4", name = "M4A1", desc = "Fully automatic assault rifle", carry = CARRY_BACK },
+    { id = "m4m203_reflex", name = "M4A1 w/ M203 & Reflex", desc = "M4A1 equipped with grenade launcher and optic", carry = CARRY_BACK },
+    { id = "m4_silencer", name = "M4A1 Suppressed", desc = "M4A1 with silencer", carry = CARRY_BACK },
+    { id = "m16", name = "M16A4", desc = "3-round burst assault rifle", carry = CARRY_BACK },
+    { id = "m16_grenadier", name = "M16A4 Grenadier", desc = "M16A4 with M203 grenade launcher", carry = CARRY_BACK },
+    { id = "ak47", name = "AK-47", desc = "High caliber fully automatic rifle", carry = CARRY_BACK },
+    { id = "ak47_grenadier", name = "AK-47 w/ GP-25", desc = "AK-47 with GP-25 underbarrel grenade launcher", carry = CARRY_BACK },
+    { id = "scar_h", name = "SCAR-H", desc = "High damage battle rifle", carry = CARRY_BACK },
+    { id = "famas", name = "FAMAS", desc = "3-round burst bullpup assault rifle", carry = CARRY_BACK },
+    { id = "fal", name = "FAL", desc = "Semi-automatic battle rifle", carry = CARRY_BACK },
+    { id = "tavor", name = "TAR-21 (Tavor)", desc = "Bullpup assault rifle with high fire rate", carry = CARRY_BACK },
+    { id = "masada", name = "ACR (Masada)", desc = "Low recoil assault rifle", carry = CARRY_BACK },
+    { id = "fn2000", name = "F2000", desc = "High rate of fire bullpup assault rifle", carry = CARRY_BACK }
 }
 
 local WEAPONS_SMG = {
-    { id = "mp5k", name = "MP5K", desc = "Compact 9mm submachine gun" },
-    { id = "ump45", name = "UMP45", desc = "High stopping power .45 ACP submachine gun" },
-    { id = "uzi", name = "Mini-Uzi", desc = "High fire rate open-bolt submachine gun" },
-    { id = "p90", name = "P90", desc = "50-round top-loading high capacity submachine gun" },
-    { id = "kriss", name = "Vector (KRISS)", desc = "Extremely high fire rate submachine gun" }
+    { id = "mp5k", name = "MP5K", desc = "Compact 9mm submachine gun", carry = CARRY_BACK },
+    { id = "ump45", name = "UMP45", desc = "High stopping power .45 ACP submachine gun", carry = CARRY_BACK },
+    { id = "uzi", name = "Mini-Uzi", desc = "High fire rate open-bolt submachine gun", carry = CARRY_HIP },
+    { id = "p90", name = "P90", desc = "50-round top-loading high capacity submachine gun", carry = CARRY_BACK },
+    { id = "kriss", name = "Vector (KRISS)", desc = "Extremely high fire rate submachine gun", carry = CARRY_BACK }
 }
 
 local WEAPONS_SHOTGUN = {
-    { id = "spas12", name = "SPAS-12", desc = "Pump-action combat shotgun" },
-    { id = "aa12", name = "AA-12", desc = "Fully automatic box-fed shotgun" },
-    { id = "m1014", name = "M1014", desc = "Semi-automatic combat shotgun" },
-    { id = "striker", name = "Striker", desc = "Revolving cylinder combat shotgun" },
-    { id = "ranger", name = "Ranger", desc = "Over-under double-barrel break-action shotgun" },
-    { id = "model1887", name = "Model 1887", desc = "Lever-action 12-gauge shotgun" },
-    { id = "winchester1200", name = "W1200", desc = "Classic pump-action shotgun" }
+    { id = "spas12", name = "SPAS-12", desc = "Pump-action combat shotgun", carry = CARRY_BACK },
+    { id = "aa12", name = "AA-12", desc = "Fully automatic box-fed shotgun", carry = CARRY_BACK },
+    { id = "m1014", name = "M1014", desc = "Semi-automatic combat shotgun", carry = CARRY_BACK },
+    { id = "striker", name = "Striker", desc = "Revolving cylinder combat shotgun", carry = CARRY_BACK },
+    { id = "ranger", name = "Ranger", desc = "Over-under double-barrel break-action shotgun", carry = CARRY_HIP },
+    { id = "model1887", name = "Model 1887", desc = "Lever-action 12-gauge shotgun", carry = CARRY_BACK },
+    { id = "winchester1200", name = "W1200", desc = "Classic pump-action shotgun", carry = CARRY_BACK }
 }
 
 local WEAPONS_LMG = {
-    { id = "l86", name = "L86 LSW", desc = "Magazine-fed light support weapon" },
-    { id = "rpd", name = "RPD", desc = "7.62mm belt-fed light machine gun" },
-    { id = "mg4", name = "MG4", desc = "5.56mm high-capacity belt-fed machine gun" },
-    { id = "aug", name = "AUG HBAR", desc = "Heavy-barreled light machine gun" },
-    { id = "m240", name = "M240", desc = "Heavy belt-fed general-purpose machine gun" }
+    { id = "l86", name = "L86 LSW", desc = "Magazine-fed light support weapon", carry = CARRY_BACK },
+    { id = "rpd", name = "RPD", desc = "7.62mm belt-fed light machine gun", carry = CARRY_BACK },
+    { id = "mg4", name = "MG4", desc = "5.56mm high-capacity belt-fed machine gun", carry = CARRY_BACK },
+    { id = "aug", name = "AUG HBAR", desc = "Heavy-barreled light machine gun", carry = CARRY_BACK },
+    { id = "m240", name = "M240", desc = "Heavy belt-fed general-purpose machine gun", carry = CARRY_BACK }
 }
 
 local WEAPONS_SNIPER = {
-    { id = "cheytac", name = "Intervention (CheyTac M200)", desc = ".408 CheyTac bolt-action sniper rifle" },
-    { id = "barrett", name = "Barrett .50cal", desc = "Semi-automatic heavy anti-materiel sniper rifle" },
-    { id = "m14_scoped", name = "M14 EBR (Scoped)", desc = "Precision marksman rifle" },
-    { id = "m14ebr_thermal", name = "M14 EBR (Thermal)", desc = "M14 EBR equipped with thermal scope" },
-    { id = "dragunov", name = "Dragunov SVD", desc = "Semi-automatic designated marksman sniper rifle" },
-    { id = "wa2000", name = "WA2000", desc = "Bullpup semi-automatic sniper rifle" }
+    { id = "cheytac", name = "Intervention (CheyTac M200)", desc = ".408 CheyTac bolt-action sniper rifle", carry = CARRY_BACK },
+    { id = "barrett", name = "Barrett .50cal", desc = "Semi-automatic heavy anti-materiel sniper rifle", carry = CARRY_BACK },
+    { id = "m14_scoped", name = "M14 EBR (Scoped)", desc = "Precision marksman rifle", carry = CARRY_BACK },
+    { id = "m14ebr_thermal", name = "M14 EBR (Thermal)", desc = "M14 EBR equipped with thermal scope", carry = CARRY_BACK },
+    { id = "dragunov", name = "Dragunov SVD", desc = "Semi-automatic designated marksman sniper rifle", carry = CARRY_BACK },
+    { id = "wa2000", name = "WA2000", desc = "Bullpup semi-automatic sniper rifle", carry = CARRY_BACK }
 }
 
 local WEAPONS_HANDGUNS = {
-    { id = "beretta", name = "M9 Beretta", desc = "Standard military sidearm 9mm" },
-    { id = "usp", name = "USP .45", desc = "Tactical sidearm .45 ACP" },
-    { id = "coltanaconda", name = ".44 Magnum (Colt Anaconda)", desc = "High stopping power revolver" },
-    { id = "deserteagle", name = "Desert Eagle", desc = "Heavy .50 AE magnum pistol" },
-    { id = "colt45", name = "M1911 .45", desc = "Classic .45 ACP military pistol" },
-    { id = "glock", name = "G18 (Glock)", desc = "Fully automatic machine pistol" },
-    { id = "m93r", name = "M93 Raffica", desc = "3-round burst machine pistol" },
-    { id = "tmp", name = "TMP / MP9", desc = "Rapid-fire compact machine pistol" },
-    { id = "pp2000", name = "PP2000", desc = "Compact Russian machine pistol" }
+    { id = "beretta", name = "M9 Beretta", desc = "Standard military sidearm 9mm", carry = CARRY_HIP },
+    { id = "usp", name = "USP .45", desc = "Tactical sidearm .45 ACP", carry = CARRY_HIP },
+    { id = "coltanaconda", name = ".44 Magnum (Colt Anaconda)", desc = "High stopping power revolver", carry = CARRY_HIP },
+    { id = "deserteagle", name = "Desert Eagle", desc = "Heavy .50 AE magnum pistol", carry = CARRY_HIP },
+    { id = "colt45", name = "M1911 .45", desc = "Classic .45 ACP military pistol", carry = CARRY_HIP },
+    { id = "glock", name = "G18 (Glock)", desc = "Fully automatic machine pistol", carry = CARRY_HIP },
+    { id = "m93r", name = "M93 Raffica", desc = "3-round burst machine pistol", carry = CARRY_BACK },
+    { id = "tmp", name = "TMP / MP9", desc = "Rapid-fire compact machine pistol", carry = CARRY_HIP },
+    { id = "pp2000", name = "PP2000", desc = "Compact Russian machine pistol", carry = CARRY_HIP }
 }
 
 local WEAPONS_LAUNCHERS = {
-    { id = "m79", name = "M79 (Thumper)", desc = "Break-action 40mm grenade launcher" },
-    { id = "rpg", name = "RPG-7", desc = "Unguided rocket propelled grenade" },
-    { id = "at4", name = "AT4", desc = "Single-shot disposable anti-armor rocket" },
-    { id = "javelin", name = "Javelin", desc = "Lock-on top-attack heavy guided missile" },
-    { id = "stinger", name = "Stinger", desc = "Surface-to-air anti-aircraft missile launcher" }
+    { id = "m79", name = "M79 (Thumper)", desc = "Break-action 40mm grenade launcher", carry = CARRY_BACK },
+    { id = "rpg", name = "RPG-7", desc = "Unguided rocket propelled grenade", carry = CARRY_BACK },
+    { id = "at4", name = "AT4", desc = "Single-shot disposable anti-armor rocket", carry = CARRY_BACK },
+    { id = "javelin", name = "Javelin", desc = "Lock-on top-attack heavy guided missile", carry = CARRY_BACK },
+    { id = "stinger", name = "Stinger", desc = "Surface-to-air anti-aircraft missile launcher", carry = CARRY_BACK }
 }
 
 local WEAPONS_SPECIAL_MELEE = {
-    { id = "ending_knife", name = "Ending Knife", desc = "The iconic final confrontation commando knife" },
-    { id = "ending_knife_bloody", name = "Bloody Ending Knife", desc = "Blood-stained campaign knife" },
-    { id = "h2_cheatcommandoknife", name = "Cheat Commando Bayonet", desc = "Green Beret high-damage bayonet blade" },
-    { id = "h2_cheatpickaxe", name = "Cheat Climbing Pickaxe", desc = "Dual ice pickaxe melee weapon" },
-    { id = "ice_picker", name = "Cliffhanger Ice Pick", desc = "Story ice climbing pick tool" },
-    { id = "ice_picker_bigjump", name = "Cliffhanger Big Jump Ice Pick", desc = "Ice pick configured for deep leaps" },
-    { id = "riot_shield", name = "Riot Shield", desc = "Ballistic blast and bullet shield (arm-mounted in VR)" }
+    { id = "ending_knife", name = "Ending Knife", desc = "The iconic final confrontation commando knife", carry = CARRY_HIP },
+    { id = "ending_knife_bloody", name = "Bloody Ending Knife", desc = "Blood-stained campaign knife", carry = CARRY_HIP },
+    { id = "h2_cheatcommandoknife", name = "Cheat Commando Bayonet", desc = "Green Beret high-damage bayonet blade", carry = CARRY_HIP },
+    { id = "h2_cheatpickaxe", name = "Cheat Climbing Pickaxe", desc = "Dual ice pickaxe melee weapon", carry = CARRY_OFFHAND },
+    { id = "ice_picker", name = "Cliffhanger Ice Pick", desc = "Story ice climbing pick tool", carry = CARRY_OFFHAND },
+    { id = "ice_picker_bigjump", name = "Cliffhanger Big Jump Ice Pick", desc = "Ice pick configured for deep leaps", carry = CARRY_OFFHAND },
+    { id = "riot_shield", name = "Riot Shield", desc = "Ballistic blast and bullet shield (arm-mounted in VR)", carry = CARRY_BACK }
 }
 
 local WEAPONS_SPECIAL_MISSION = {
-    { id = "remote_missile_detonator", name = "AGM / Predator Laptop", desc = "Tactical remote missile control notebook unit" },
-    { id = "remote_missile_detonator_finite", name = "AGM Laptop (Finite)", desc = "Tactical remote missile unit (finite missiles)" },
-    { id = "usp_laserdesignator", name = "Laser Target Designator", desc = "Arcadia / Exodus artillery and Stryker designator" },
-    { id = "sentry_minigun", name = "Deployable Sentry Turret", desc = "Automated deployable minigun sentry gun" },
-    { id = "c4", name = "C4 Explosives & Detonator", desc = "Remote detonated plastic explosives" },
-    { id = "claymore", name = "Claymore Anti-Personnel Mines", desc = "Directional tripwire laser mines" },
-    { id = "flare", name = "Whisky Hotel Signal Flare", desc = "Emergency green rooftop signaling flare" },
-    { id = "airdrop_marker", name = "Care Package Airdrop Canister", desc = "Killstreak airdrop supply smoke marker" },
-    { id = "airdrop_sentry_marker", name = "Sentry Airdrop Marker", desc = "Care package marker calling in a sentry gun" },
-    { id = "airdrop_mega_marker", name = "Emergency Airdrop Marker", desc = "Multi-crate emergency air drop marker" }
+    { id = "remote_missile_detonator", name = "AGM / Predator Laptop", desc = "Tactical remote missile control notebook unit", carry = CARRY_OFFHAND },
+    { id = "remote_missile_detonator_finite", name = "AGM Laptop (Finite)", desc = "Tactical remote missile unit (finite missiles)", carry = CARRY_OFFHAND },
+    { id = "usp_laserdesignator", name = "Laser Target Designator", desc = "Arcadia / Exodus artillery and Stryker designator", carry = CARRY_BELLY },
+    { id = "sentry_minigun", name = "Deployable Sentry Turret", desc = "Automated deployable minigun sentry gun", carry = CARRY_OFFHAND },
+    { id = "c4", name = "C4 Explosives & Detonator", desc = "Remote detonated plastic explosives", carry = CARRY_OFFHAND },
+    { id = "claymore", name = "Claymore Anti-Personnel Mines", desc = "Directional tripwire laser mines", carry = CARRY_OFFHAND },
+    { id = "flare", name = "Whisky Hotel Signal Flare", desc = "Emergency green rooftop signaling flare", carry = CARRY_OFFHAND },
+    { id = "airdrop_marker", name = "Care Package Airdrop Canister", desc = "Killstreak airdrop supply smoke marker", carry = CARRY_OFFHAND },
+    { id = "airdrop_sentry_marker", name = "Sentry Airdrop Marker", desc = "Care package marker calling in a sentry gun", carry = CARRY_OFFHAND },
+    { id = "airdrop_mega_marker", name = "Emergency Airdrop Marker", desc = "Multi-crate emergency air drop marker", carry = CARRY_OFFHAND }
 }
 
 local WEAPONS_THROWABLES = {
-    { id = "fraggrenade", name = "M67 Frag Grenade", desc = "Standard fragmentation hand grenade" },
-    { id = "semtex", name = "Semtex Sticky Grenade", desc = "Timed adhesive explosive grenade" },
-    { id = "flash_grenade", name = "Flashbang", desc = "Tactical blinding / disorienting grenade" },
-    { id = "smoke_grenade", name = "Smoke Grenade", desc = "Concealment smoke screen" },
-    { id = "h2_cheatpomegrenade", name = "Cheat Pomegranate Grenade", desc = "Explosive pomegranate fruit grenade" },
-    { id = "h2_cheatfootball", name = "Cheat Football / Soccer Ball", desc = "Bouncing soccer ball explosive" }
+    { id = "fraggrenade", name = "M67 Frag Grenade", desc = "Standard fragmentation hand grenade", carry = CARRY_OFFHAND },
+    { id = "semtex", name = "Semtex Sticky Grenade", desc = "Timed adhesive explosive grenade", carry = CARRY_OFFHAND },
+    { id = "flash_grenade", name = "Flashbang", desc = "Tactical blinding / disorienting grenade", carry = CARRY_OFFHAND },
+    { id = "smoke_grenade", name = "Smoke Grenade", desc = "Concealment smoke screen", carry = CARRY_OFFHAND },
+    { id = "h2_cheatpomegrenade", name = "Cheat Pomegranate Grenade", desc = "Explosive pomegranate fruit grenade", carry = CARRY_OFFHAND },
+    { id = "h2_cheatfootball", name = "Cheat Football / Soccer Ball", desc = "Bouncing soccer ball explosive", carry = CARRY_OFFHAND }
 }
 
 local MODELS_MISSION_ITEMS = {
@@ -348,10 +377,12 @@ local NPCS_AND_CHARACTERS = {
 -- Populate weapon list menu helper
 local function PopulateWeaponList(menu, list)
     for _, item in ipairs(list) do
+        local where = item.carry and CARRY_TEXT[item.carry]
         menu:AddButton(item.name, function()
             ExecCmdNotify("give " .. item.id, "Given: " .. item.name)
         end, nil, true, nil, {
-            desc_text = item.desc .. " [Command: give " .. item.id .. "]"
+            desc_text = item.desc .. ". " .. (where or "")
+                .. " [give " .. item.id .. "]"
         })
     end
 end
@@ -536,55 +567,104 @@ LUI.MenuBuilder.registerType("cheats_mission_weapons_menu", function(root)
 end)
 
 -- Weapons & Gear Spawner Hub
+--
+-- Grouped by where a weapon physically ends up in VR rather than by game
+-- category, because that is what decides whether you can actually reach it.
+-- Only the hip-capable group fits a waist holster; everything in the back-only
+-- group competes for the single back slot, and the loser is invisible.
 LUI.MenuBuilder.registerType("cheats_armory_menu", function(root)
     return CreateSubmenu(root, "Armory & Item Spawner", function(menu, div)
-        div(menu, "Mission Inventory Inspection")
-        menu:AddButton("^2[ACTIVE MISSION WEAPONS (AUTO-DETECT)]^7", function()
-            LUI.FlowManager.RequestAddMenu(nil, "cheats_mission_weapons_menu")
-        end, nil, true, nil, { desc_text = "Dynamically inspect and spawn any weapon loaded into the current mission" })
+        div(menu, "Inventory Space")
+        -- Native ownership is a 15-entry array (capacity = 15 in
+        -- weapon_carry.hpp) and reconcile_instances refuses past it, so the
+        -- carry system stops placing weapons. There is no Lua call in the
+        -- shipped Engine surface that reports how many you are carrying, so
+        -- this cannot show a live count -- it just keeps the remedy one press
+        -- away from the buttons that cause the problem.
+        menu:AddButton("^1[CLEAR INVENTORY - TAKE ALL WEAPONS]^7", function()
+            ExecCmdNotify("take all", "Removed all weapons")
+        end, nil, true, nil, {
+            desc_text = "Empties your hands and every holster. The game caps "
+                .. "you at 15 owned weapons; past that, newly given weapons "
+                .. "stop being placed at all. Clear here if guns stop appearing."
+        })
 
-        div(menu, "Primary Firearms")
+        div(menu, "Fits a Hip Holster")
+        menu:AddButton("^5Handguns & Machine Pistols^7", function()
+            LUI.FlowManager.RequestAddMenu(nil, "cheats_handgun_menu")
+        end, nil, true, nil, {
+            desc_text = "M9, USP .45, .44 Magnum, Desert Eagle, M1911, G18, "
+                .. "TMP, PP2000. All reach a waist holster, except the M93 "
+                .. "Raffica, which goes on your back."
+        })
+
+        menu:AddButton("^4Special Melee & Knives^7", function()
+            LUI.FlowManager.RequestAddMenu(nil, "cheats_melee_menu")
+        end, nil, true, nil, {
+            desc_text = "The three commando knives reach a waist holster. The "
+                .. "ice picks, pickaxe and riot shield do not -- they are "
+                .. "outside VR carry entirely."
+        })
+
+        div(menu, "Back Slot Only")
         menu:AddButton("^3Assault Rifles^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_ar_menu")
-        end, nil, true, nil, { desc_text = "Spawn M4A1, AK-47, SCAR-H, ACR, FAMAS, etc." })
+        end, nil, true, nil, { desc_text = "M4A1, AK-47, SCAR-H, ACR, FAMAS, M16A4, FAL, TAR-21, F2000." })
 
         menu:AddButton("^3Submachine Guns^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_smg_menu")
-        end, nil, true, nil, { desc_text = "Spawn UMP45, MP5K, P90, Vector, Mini-Uzi" })
+        end, nil, true, nil, {
+            desc_text = "UMP45, MP5K, P90 and the Vector go on your back; only "
+                .. "the Mini-Uzi reaches a hip. A native SMG category is not a "
+                .. "waist permit."
+        })
 
         menu:AddButton("^3Shotguns^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_shotgun_menu")
-        end, nil, true, nil, { desc_text = "Spawn SPAS-12, AA-12, Model 1887, Ranger, Striker" })
+        end, nil, true, nil, {
+            desc_text = "SPAS-12, AA-12, M1014, Striker, Model 1887 and W1200 "
+                .. "go on your back; only the Ranger reaches a hip."
+        })
 
         menu:AddButton("^3Light Machine Guns^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_lmg_menu")
-        end, nil, true, nil, { desc_text = "Spawn RPD, M240, MG4, AUG HBAR, L86 LSW" })
+        end, nil, true, nil, { desc_text = "RPD, M240, MG4, AUG HBAR, L86 LSW." })
 
         menu:AddButton("^3Sniper & Marksman Rifles^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_sniper_menu")
-        end, nil, true, nil, { desc_text = "Spawn Intervention, Barrett .50cal, M14 EBR, Dragunov" })
-
-        div(menu, "Sidearms & Heavy Ordnance")
-        menu:AddButton("^5Handguns & Machine Pistols^7", function()
-            LUI.FlowManager.RequestAddMenu(nil, "cheats_handgun_menu")
-        end, nil, true, nil, { desc_text = "Spawn M9, USP .45, .44 Magnum, Desert Eagle, G18, Raffica" })
+        end, nil, true, nil, { desc_text = "Intervention, Barrett .50cal, M14 EBR, Dragunov, WA2000." })
 
         menu:AddButton("^5Launchers & Heavy^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_launcher_menu")
-        end, nil, true, nil, { desc_text = "Spawn RPG-7, AT4, Javelin, Stinger, M79 Thumper" })
+        end, nil, true, nil, {
+            desc_text = "RPG-7, M79 Thumper, and the AT4, Javelin and Stinger. "
+                .. "Those last three are right-hand-fires-only: the left hand "
+                .. "can support but not shoot."
+        })
 
-        div(menu, "Melee, Equipment & Story Items")
-        menu:AddButton("^4Special Melee & Knives^7", function()
-            LUI.FlowManager.RequestAddMenu(nil, "cheats_melee_menu")
-        end, nil, true, nil, { desc_text = "Spawn Ending Knife, Bloody Knife, Commando Bayonet, Ice Picks" })
-
+        div(menu, "Native Equipment Slots")
         menu:AddButton("^4Mission & Story Items^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_mission_menu")
-        end, nil, true, nil, { desc_text = "Spawn AGM/Predator Laptop, Laser Designator, C4, Claymores, Flare" })
+        end, nil, true, nil, {
+            desc_text = "AGM/Predator laptop, C4, claymores, flare, sentry and "
+                .. "airdrop markers stay in their native equipment slots. The "
+                .. "laser designator gets its own abdominal slot."
+        })
 
         menu:AddButton("^6Throwables & Fun Cheats^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_throwable_menu")
-        end, nil, true, nil, { desc_text = "Spawn Frag, Semtex, Flash, Pomegranate, Football" })
+        end, nil, true, nil, {
+            desc_text = "Frag, Semtex, Flash, Smoke, Pomegranate and Football. "
+                .. "Grenades are outside VR carry and use the native offhand."
+        })
+
+        div(menu, "Mission Inventory Inspection")
+        menu:AddButton("^2[ACTIVE MISSION WEAPONS (AUTO-DETECT)]^7", function()
+            LUI.FlowManager.RequestAddMenu(nil, "cheats_mission_weapons_menu")
+        end, nil, true, nil, {
+            desc_text = "Every weapon asset the current level actually loaded. "
+                .. "Names outside this list may not exist in this mission."
+        })
     end)
 end)
 
@@ -686,7 +766,11 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
 
         menu:AddButton("^1Take All Weapons^7", function()
             ExecCmdNotify("take all", "Removed all weapons")
-        end, nil, true, nil, { desc_text = "Remove all weapons from inventory (empty hands)" })
+        end, nil, true, nil, {
+            desc_text = "Empty your hands and every holster. Also the fix when "
+                .. "given weapons stop appearing: the game owns at most 15 at "
+                .. "once, and past that the carry system stops placing them."
+        })
     end)
 end)
 

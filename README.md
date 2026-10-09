@@ -142,6 +142,15 @@ module folder.
 
 ---
 
+## 🤖 Contributing / agents
+
+Conventions and caveats for this project live in [AGENTS.md](AGENTS.md) — read it
+before editing Lua or GSC. It covers the `Engine.` vs `game:` call asymmetry, the
+`main()`/`init()` load phases, GSC block scoping, where `give` physically puts a
+weapon in VR, and the gate (`tools/check.sh`).
+
+---
+
 ## 📄 License
 
 MIT License. See [LICENSE](LICENSE) for details.
