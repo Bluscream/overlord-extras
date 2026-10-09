@@ -1,40 +1,20 @@
 -- Overlord Extras: VR Settings Menu
 --
--- Kept in one file deliberately, matching settings/settings.lua. Sibling
--- require() does work -- h2-mod's own achievements/__init__.lua does
--- `require("toast")` -- but one file means one load, one guard and one place to
--- hot-reload, and the module is not large enough to need splitting.
+-- Kept in one file deliberately, matching h2-mod's settings/settings.lua.
+-- Shared helpers come from ui_scripts/_common, which sorts and therefore loads
+-- before this module.
 
--- LUI.addmenubutton and LUI.onmenuopen both append; neither replaces. Without
--- this guard, hot-reloading with `dofile` adds another OVERLORD VR EXTRAS entry
--- to Options, the campaign menu and the pause menu on every reload.
-if _G.OverlordExtrasMenuLoaded then
-    print("[Overlord Extras] already loaded; skipping re-registration")
+local common = _G.OverlordCommon
+if not common then
+    print("[Overlord Extras] ui_scripts/_common did not load; menu not registered")
     return
 end
-_G.OverlordExtrasMenuLoaded = true
+if not common.Claim("Extras") then return end
+
+local createDivider = common.CreateDivider
+local Toast = common.Toast
 
 print("[Overlord Extras] Initializing modular VR settings menu...")
-
-local function createDivider(menu, text)
-    local element = LUI.UIElement.new({
-        leftAnchor = true,
-        rightAnchor = true,
-        left = 0,
-        right = 0,
-        topAnchor = true,
-        bottomAnchor = false,
-        top = 0,
-        bottom = 33.33
-    })
-
-    element.scrollingToNext = true
-    element:addElement(LUI.MenuBuilder.BuildRegisteredType("h1_option_menu_titlebar", {
-        title_bar_text = Engine.ToUpperCase(Engine.Localize(text))
-    }))
-
-    menu.list:addElement(element)
-end
 
 -- ============================================================
 -- Section: VR Camera & Comfort
@@ -168,7 +148,7 @@ local function buildRenderingOptions(menu)
     }
 
     local function getPostAAText()
-        local currentVal = Engine.GetDvarString and Engine.GetDvarString("r_postAA") or "Off"
+        local currentVal = common.GetDvarString("r_postAA", "Off")
         for _, opt in ipairs(postAAOptions) do
             if opt.value == currentVal then
                 return opt.text
@@ -178,7 +158,7 @@ local function buildRenderingOptions(menu)
     end
 
     local function cyclePostAA(delta)
-        local currentVal = Engine.GetDvarString and Engine.GetDvarString("r_postAA") or "Off"
+        local currentVal = common.GetDvarString("r_postAA", "Off")
         local idx = 1
         for i, opt in ipairs(postAAOptions) do
             if opt.value == currentVal then
@@ -192,7 +172,9 @@ local function buildRenderingOptions(menu)
         elseif nextIdx < 1 then
             nextIdx = #postAAOptions
         end
-        Engine.SetDvarString("r_postAA", postAAOptions[nextIdx].value)
+        local chosen = postAAOptions[nextIdx]
+        common.SetDvarString("r_postAA", chosen.value)
+        Toast("Anti-aliasing: " .. chosen.text)
     end
 
     LUI.Options.AddButtonOptionVariant(
@@ -237,24 +219,24 @@ end
 local function buildCheatsOptions(menu)
     createDivider(menu, "Sandbox & Cheats")
 
-    -- Ensure dvar is initialized in engine
-    if Engine.GetDvarType and not Engine.GetDvarType("overlord_cheats_enabled") then
-        Engine.Exec("seta overlord_cheats_enabled 0")
+    -- This module owns the dvar; ui_scripts/cheats only ever reads it. Register
+    -- it before anything reads it, because an unregistered dvar returns nil and
+    -- `nil .. string` takes the LUI dispatcher down with an access violation.
+    if type(Engine.GetDvarType) == "function" and not Engine.GetDvarType("overlord_cheats_enabled") then
+        common.Exec("seta overlord_cheats_enabled 0")
     end
 
     local function getCheatsEnabledText()
-        local isEnabled = Engine.GetDvarBool and Engine.GetDvarBool("overlord_cheats_enabled")
-        if isEnabled then
+        if common.GetDvarBool("overlord_cheats_enabled") then
             return Engine.Localize("@LUA_MENU_ENABLED")
-        else
-            return Engine.Localize("@LUA_MENU_DISABLED")
         end
+        return Engine.Localize("@LUA_MENU_DISABLED")
     end
 
     local function toggleCheats()
-        local current = Engine.GetDvarBool and Engine.GetDvarBool("overlord_cheats_enabled")
-        local newVal = not current
-        Engine.SetDvarBool("overlord_cheats_enabled", newVal)
+        local enabled = not common.GetDvarBool("overlord_cheats_enabled")
+        common.SetDvarBool("overlord_cheats_enabled", enabled)
+        Toast(enabled and "Cheats menu unlocked" or "Cheats menu locked")
     end
 
     LUI.Options.AddButtonOptionVariant(

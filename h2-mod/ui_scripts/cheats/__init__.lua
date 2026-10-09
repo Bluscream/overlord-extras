@@ -6,181 +6,34 @@
 -- Gated on the `overlord_cheats_enabled` dvar, which ui_scripts/overlord_extras
 -- registers and toggles. This module only ever reads it.
 
--- LUI.onmenuopen appends a callback; it does not replace one. Hot-reloading this
--- file with `dofile` (the documented workflow) would therefore add a second
--- CHEATS button to the pause menu on every reload. Re-registering the menu
--- builders is harmless because those are keyed by name, so only the menu hook
--- needs guarding -- but bail out early so a reload is a visible no-op rather
--- than a silently duplicated menu.
-if _G.OverlordCheatsMenuLoaded then
-    print("[Overlord Cheats] already loaded; skipping re-registration")
+-- Shared helpers live in ui_scripts/_common, which sorts and therefore loads
+-- before this module. Resolve it once and fail loudly: a half-working cheats
+-- menu is worse than one that says why it is absent.
+local common = _G.OverlordCommon
+if not common then
+    print("[Overlord Cheats] ui_scripts/_common did not load; menu not registered")
     return
 end
-_G.OverlordCheatsMenuLoaded = true
+if not common.Claim("Cheats") then return end
 
--- ============================================================
--- Toast feedback
--- ============================================================
--- There is no notification function in the Engine table; the shipped surface is
--- Exec/ExecNow, the dvar accessors, Localize/ToUpperCase, PlaySound and
--- GetLuiRoot. The native cheat commands (god, demigod, notarget, noclip) print
--- their own CG_GameMessage from C++, but everything routed through `give`,
--- `spawn_xmodel` or a dvar is silent.
---
--- h2-mod's achievements module defines a global `addnotification`, but it is a
--- 5s/6s QUEUE: clicking ten armory buttons would back up a minute of stale
--- toasts. This is a single slot that replaces its text and resets its timer
--- instead, modelled on the element/timer/animation patterns in
--- h2-mod/ui_scripts/achievements/toast.lua, which are known to work.
-local Toast
-do
-    local SHOW_MS = 2200
-    local FADE_MS = 160
-    local slot, label
-
-    local function root()
-        if type(Engine.GetLuiRoot) == "function" then
-            local ok, r = pcall(Engine.GetLuiRoot)
-            if ok and r then return r end
-        end
-        return LUI.roots and (LUI.roots.UIRoot0 or LUI.roots.UIRootFull)
-    end
-
-    local function build()
-        local parent = root()
-        if not parent then return false end
-        if slot and slot:getParent() then return true end
-
-        local font = CoD.TextSettings.Font21
-        slot = LUI.UIElement.new({
-            topAnchor = true, leftAnchor = true, rightAnchor = true,
-            top = 120, left = 0, right = 0, height = font.Height + 12,
-            alpha = 0
-        })
-        slot.id = "OverlordCheatsToast"
-        -- Priority keeps it above the pause menu, which is where the buttons are.
-        if type(slot.setPriority) == "function" then slot:setPriority(1000) end
-        slot:registerAnimationState("shown", { alpha = 1 })
-        slot:registerAnimationState("hidden", { alpha = 0 })
-
-        local backdrop = LUI.UIImage.new({
-            topAnchor = true, bottomAnchor = true,
-            leftAnchor = true, rightAnchor = true,
-            alpha = 0.55, color = Colors.grey_14
-        })
-
-        label = LUI.UIText.new({
-            topAnchor = true, leftAnchor = true, rightAnchor = true,
-            top = 6, height = font.Height,
-            font = font.Font,
-            alignment = LUI.Alignment.Center
-        })
-
-        slot:addElement(backdrop)
-        slot:addElement(label)
-
-        -- One shared timer, Reset on each message, so a new toast restarts the
-        -- dwell rather than appending to a queue.
-        local timer = LUI.UITimer.new(SHOW_MS, "overlord_toast_expired")
-        slot:addElement(timer)
-        slot:registerEventHandler("overlord_toast_expired", function()
-            LUI.UITimer.Stop(timer)
-            slot:animateToState("hidden", FADE_MS)
-        end)
-        slot.timer = timer
-
-        local ok = pcall(function() parent:addElement(slot) end)
-        if not ok then
-            slot, label = nil, nil
-            return false
-        end
-        return true
-    end
-
-    -- Text only; a toast must never be able to break the button that raised it.
-    Toast = function(text)
-        if type(text) ~= "string" or #text == 0 then return end
-        pcall(function()
-            if not build() then return end
-            label:setText(text)
-            LUI.UITimer.Reset(slot.timer)
-            slot:animateToState("hidden")
-            slot:animateToState("shown", FADE_MS)
-            if CoD and CoD.SFX and CoD.SFX.MenuAccept and type(Engine.PlaySound) == "function" then
-                Engine.PlaySound(CoD.SFX.MenuAccept)
-            end
-        end)
-    end
+local ExecCmd = common.Exec
+local ExecCmdNotify = common.ExecNotify
+local SetChoice = common.AddChoiceButton
+local createDivider = common.CreateDivider
+local IsCheatsUnlocked = function()
+    -- overlord_extras registers and owns this dvar; this module only reads it.
+    return common.GetDvarBool("overlord_cheats_enabled")
 end
 
-local function ExecCmd(cmd)
-    Engine.Exec(cmd)
-end
-
--- Exec is queued, so the toast is a statement of what was requested, not of
--- what the engine went on to do. `give` and `spawn_xmodel` report their own
--- failures on screen ("Weapon does not exist"), which appears after this.
-local function ExecCmdNotify(cmd, text)
-    Engine.Exec(cmd)
-    Toast(text)
-end
-
--- Overlord's launcher owns three cheat preferences and re-applies them
+-- Overlord's launcher owns these three preferences and re-applies them
 -- idempotently on the server scheduler. Firing `god`/`notarget` as console
 -- toggles fights that loop: the launcher reasserts its own value on the next
--- tick and the menu and the launcher's VR Settings page disagree. Set the
--- preference instead, so pressing a button twice is harmless.
+-- tick and the menu and the launcher's VR Settings page disagree. Setting the
+-- preference instead makes a second press harmless.
 -- Contract: docs/vr-official-cheats.md in the Overlord source tree.
 local CHEAT_HEALTH_DVAR = "vr_cheatHealth"      -- off | demigod | god
 local CHEAT_NOTARGET_DVAR = "vr_cheatNotarget"  -- off | on
 local CHEAT_AMMO_DVAR = "vr_cheatAmmo"          -- off | reserve | infinite
-
--- Engine.SetDvarString is absent on some builds, and calling a nil value out of
--- a LUI event handler surfaces as an access violation rather than a Lua error.
-local function SetDvarString(dvar, value)
-    if type(Engine.SetDvarString) == "function" then
-        Engine.SetDvarString(dvar, value)
-    else
-        Engine.Exec(string.format("set %s %s", dvar, value))
-    end
-end
-
-local function IsCheatsUnlocked()
-    if type(Engine.GetDvarBool) ~= "function" then
-        return false
-    end
-    -- An unregistered dvar reads back nil, and `nil` is falsy, so this stays
-    -- locked rather than erroring if overlord_extras has not loaded yet.
-    return Engine.GetDvarBool("overlord_cheats_enabled") == true
-end
-
--- A preference button, as opposed to a toggle: it sets one known value.
-local function SetChoice(menu, label, dvar, value, desc, notice)
-    menu:AddButton(label, function()
-        SetDvarString(dvar, value)
-        Toast(notice or label)
-    end, nil, true, nil, { desc_text = desc })
-end
-
-local function createDivider(menu, text)
-    local element = LUI.UIElement.new({
-        leftAnchor = true,
-        rightAnchor = true,
-        left = 0,
-        right = 0,
-        topAnchor = true,
-        bottomAnchor = false,
-        top = 0,
-        bottom = 33.33
-    })
-
-    element.scrollingToNext = true
-    element:addElement(LUI.MenuBuilder.BuildRegisteredType("h1_option_menu_titlebar", {
-        title_bar_text = Engine.ToUpperCase(Engine.Localize(text))
-    }))
-
-    menu.list:addElement(element)
-end
 
 -- Submenu creation helper
 local function CreateSubmenu(root, title, populateFunc)

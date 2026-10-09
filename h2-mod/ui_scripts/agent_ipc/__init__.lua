@@ -2,11 +2,12 @@
 -- Enables bidirectional communication between host environment (shell/agent/CLI) and in-game Lua/engine.
 -- Listens for requests on "h2-mod/ipc_in.txt" and writes results to "h2-mod/ipc_out.txt".
 
-if _G.AgentIPC_Active then
-    print("[Agent IPC] Module already active, skipping re-init")
+local common = _G.OverlordCommon
+if not common then
+    print("[Agent IPC] ui_scripts/_common did not load; bridge not started")
     return
 end
-_G.AgentIPC_Active = true
+if not common.Claim("Agent IPC") then return end
 
 print("[Agent IPC] Initializing Agent IPC Bridge v1.0.0...")
 
@@ -156,14 +157,10 @@ local function handle_payload(raw)
             local dvar_part = string.match(cmd_line, "^dvar:%s*(.+)$") or ""
             local var, val = string.match(dvar_part, "^([^=]+)=(.*)$")
             if var and val then
-                -- Set dvar
-                if Engine and type(Engine.SetDvarString) == "function" then
-                    Engine.SetDvarString(var, val)
-                    table.insert(out_parts, "[DVAR SET] " .. var .. " = " .. val)
-                else
-                    table.insert(out_parts, "[DVAR ERROR] Engine.SetDvarString not available")
-                    all_ok = false
-                end
+                -- common.SetDvarString feature-tests the accessor and falls back
+                -- to a queued `set` command when it is unavailable.
+                common.SetDvarString(var, val)
+                table.insert(out_parts, "[DVAR SET] " .. var .. " = " .. val)
             else
                 -- Get dvar
                 var = dvar_part

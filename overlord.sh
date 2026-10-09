@@ -22,7 +22,9 @@ IPC_TIMEOUT_SEC="${OVERLORD_IPC_TIMEOUT:-3}"
 
 # Every ui_scripts module this repo owns. deploy, uninstall and status all read
 # this list, so adding a module is a one-line change instead of three.
-UI_SCRIPT_MODULES=(overlord_extras agent_ipc cheats)
+# _common must be present: the other modules refuse to register without it. Its
+# name starts with an underscore so it sorts, and therefore loads, first.
+UI_SCRIPT_MODULES=(_common overlord_extras agent_ipc cheats)
 
 # Steam shortcut specifics
 STEAM_SHORTCUT_ID="17596034734578728960"

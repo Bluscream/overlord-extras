@@ -18,9 +18,10 @@ read_globals = {
 -- LUI.MenuBuilder.m_types_build. Declaring it read-only makes that a warning.
 globals = {
     "LUI",
-    "AgentIPC_Active",
-    "OverlordExtrasMenuLoaded",
-    "OverlordCheatsMenuLoaded",
+    -- ui_scripts/_common publishes the shared helper table here. `require`
+    -- resolves against the requiring module's own folder, so a global is the
+    -- only way to share code across ui_scripts modules.
+    "OverlordCommon",
 }
 
 -- 120 is right for code, but the weapon and model lists are one data row per
@@ -32,5 +33,5 @@ max_line_length = 160
 -- restores it on both the success and the error path. The host provides print,
 -- and there is no other way to capture what evaluated code writes.
 files["h2-mod/ui_scripts/agent_ipc/__init__.lua"] = {
-    globals = { "AgentIPC_Active", "print" },
+    globals = { "print" },
 }

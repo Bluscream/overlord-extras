@@ -153,7 +153,7 @@ TableLookupByRow
 (`src/client/game/symbols.hpp:25`) and never bound to Lua. Native cheat commands
 print their own messages from C++; anything routed through `give`,
 `spawn_xmodel` or a dvar is silent unless you show it yourself. This repo has a
-single-slot `Toast` helper in `cheats/__init__.lua` for that. h2-mod's
+single-slot `Toast` helper in `_common/__init__.lua` for that. h2-mod's
 `achievements/toast.lua` also defines a global `addnotification`, but it is a
 5s/6s **queue** — unusable for rapid button presses.
 
@@ -190,18 +190,69 @@ Menu *builders* registered by name (`LUI.MenuBuilder.registerType`,
 `LUI` is in `globals`, not `read_globals`, in `.luacheckrc` — registering a menu
 assigns into `LUI.MenuBuilder.m_types_build`.
 
-### Module layout
+### Module layout and how to share code
 
-Overlord's loader reads `h2-mod/ui_scripts/<dir>/__init__.lua`. Sibling
-`require("name")` **does** work — h2-mod's `achievements/__init__.lua` does
-`require("toast")` — but modules here are kept in one file anyway: one load, one
-guard, one place to hot-reload. Do not repeat the old claim that sibling
-`require` is impossible; it is false.
+Overlord's loader ([`ui_script_modules.hpp`](src/client/component/ui_script_modules.hpp))
+only auto-executes `h2-mod/ui_scripts/<dir>/__init__.lua`, and only for a
+directory that contains one. A directory without `__init__.lua` is invisible to
+the loader.
 
-Load order is directory-alphabetical (`agent_ipc`, `cheats`, `overlord_extras`),
-so **do not read another module's state at load time**. `cheats` reads
-`overlord_cheats_enabled`, which `overlord_extras` registers — that works only
-because the reads happen inside callbacks.
+**`require` resolves against the requiring module's own folder**, from the
+*root* script, not the file currently running
+([`ui_scripting.cpp:977`](src/client/component/ui_scripting.cpp:977)):
+
+```cpp
+const auto folder = globals.in_require_script.substr(0, ...find_last_of("/\\"));
+const std::string target_script = folder + "/" + name_ + ".lua";
+```
+
+So:
+
+- **Splitting inside a module folder works.** `require("foo")` →
+  `<module dir>/foo.lua`; subdirectories work too (`require("util/math")`).
+  h2-mod's own `achievements/__init__.lua` is just `require("toast")` +
+  `require("menu")`. Do not repeat the old claim that sibling `require` is
+  impossible; it is false.
+- **Paths do not nest.** A file in `common/` doing `require("bar")` looks in
+  `<module dir>/bar.lua`, because resolution is always from the root script.
+- **A module cannot `require` across into another module's directory.** There is
+  no `..` sanitization on this path, unlike the GSC loader
+  ([`script_loading.cpp:452`](src/client/component/gsc/script_loading.cpp:452)),
+  so `require("../common/x")` might construct a valid path — but HKS rewrites
+  the module name before the hook sees it (the shipped
+  `require("LUI.common_menus.MarketingPopup")` arrives as `ui/LUI/...`), so
+  whether `../` survives is **unverified**. Do not build on it.
+
+**Cross-module sharing therefore goes through a global namespace.**
+`ui_scripts/_common/__init__.lua` publishes `_G.OverlordCommon`
+(`Claim`, `Exec`, `ExecNotify`, `Toast`, `SetDvarString`, `SetDvarBool`,
+`GetDvarBool`, `GetDvarString`, `CreateDivider`, `AddButton`,
+`AddChoiceButton`).
+
+The leading underscore is load order, not decoration: `discover()` sorts the
+directories, `_` is 0x5F and lowercase starts at 0x61, so `_common` runs before
+`agent_ipc`, `cheats` and `overlord_extras`. That guarantee is what lets
+consumers bind the table at load time:
+
+```lua
+local common = _G.OverlordCommon
+if not common then
+    print("[Overlord X] ui_scripts/_common did not load; not registered")
+    return
+end
+if not common.Claim("X") then return end
+local Toast = common.Toast
+```
+
+**Fail loudly, never degrade silently** — a half-registered menu is worse than
+one that says why it is absent. If you add a module that must load before
+`_common`, the underscore trick stops being enough and the binding has to become
+lazy (`local c = _G.OverlordCommon` inside each call).
+
+Load order still matters for *state*: **do not read another module's dvars or
+globals at load time.** `cheats` reads `overlord_cheats_enabled`, which
+`overlord_extras` registers and sorts after it — that works only because the
+read happens inside a callback.
 
 ### Toast / UI element patterns
 

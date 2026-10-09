@@ -33,9 +33,9 @@ skip() {
   skips=$((skips + 1))
 }
 
-mapfile -t shell_files < <(git ls-files '*.sh')
-mapfile -t lua_files < <(git ls-files '*.lua')
-mapfile -t python_files < <(git ls-files '*.py')
+mapfile -t shell_files < <(git ls-files --cached --others --exclude-standard '*.sh')
+mapfile -t lua_files < <(git ls-files --cached --others --exclude-standard '*.lua')
+mapfile -t python_files < <(git ls-files --cached --others --exclude-standard '*.py')
 
 step "bash -n (syntax)"
 for file in "${shell_files[@]}"; do
@@ -104,7 +104,7 @@ fi
 # parse alone misses (a local declared inside an `if` is not visible after it).
 # MW2CR is the h2 title on pc.
 step "GSC compile check (gsc-tool, game=h2)"
-mapfile -t gsc_files < <(git ls-files '*.gsc' '*.csc')
+mapfile -t gsc_files < <(git ls-files --cached --others --exclude-standard '*.gsc' '*.csc')
 if [[ ${#gsc_files[@]} -eq 0 ]]; then
   printf 'no GSC files\n'
 elif command -v gsc-tool >/dev/null 2>&1; then

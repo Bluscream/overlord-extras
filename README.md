@@ -124,6 +124,8 @@ overlord-extras/
 │   ├── scripts/
 │   │   └── actor_spawner.gsc   # Live AI combat actor spawner (GSC)
 │   └── ui_scripts/
+│       ├── _common/            # Shared helpers; loads first, publishes
+│       │   └── __init__.lua    #   _G.OverlordCommon (toast, dvars, menus)
 │       ├── overlord_extras/    # VR settings menu; owns overlord_cheats_enabled
 │       │   └── __init__.lua
 │       ├── agent_ipc/          # Bidirectional host-to-game IPC bridge
@@ -136,9 +138,10 @@ overlord-extras/
     └── README.md
 ```
 
-Each `ui_scripts/<name>/__init__.lua` must be self-contained: h2-mod's loader
-reads only that file, and `require` cannot resolve a sibling inside the same
-module folder.
+Only `__init__.lua` is auto-executed per module directory. `require("name")`
+works *within* a module folder, but cannot reach across into another module's
+folder — so shared code lives in `_common/`, which loads first (underscore sorts
+ahead of lowercase) and publishes `_G.OverlordCommon`. See [AGENTS.md](AGENTS.md).
 
 ---
 
