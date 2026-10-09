@@ -224,15 +224,34 @@ end
 local function buildCheatsOptions(menu)
     createDivider(menu, "Sandbox & Cheats")
 
-    LUI.Options.CreateOptionButton(
+    -- Ensure dvar is initialized in engine
+    if Engine.GetDvarType and not Engine.GetDvarType("overlord_cheats_enabled") then
+        Engine.Exec("seta overlord_cheats_enabled 0")
+    end
+
+    local function getCheatsEnabledText()
+        local isEnabled = Engine.GetDvarBool and Engine.GetDvarBool("overlord_cheats_enabled")
+        if isEnabled then
+            return Engine.Localize("@LUA_MENU_ENABLED")
+        else
+            return Engine.Localize("@LUA_MENU_DISABLED")
+        end
+    end
+
+    local function toggleCheats()
+        local current = Engine.GetDvarBool and Engine.GetDvarBool("overlord_cheats_enabled")
+        local newVal = not current
+        Engine.SetDvarBool("overlord_cheats_enabled", newVal)
+    end
+
+    LUI.Options.AddButtonOptionVariant(
         menu,
-        "overlord_cheats_enabled",
+        GenericButtonSettings.Variants.Select,
         "Enable Cheats Menu",
         "Unlocks the in-game Cheats & Sandbox submenu in the Pause Menu.",
-        {
-            { text = "@LUA_MENU_DISABLED", value = false },
-            { text = "@LUA_MENU_ENABLED", value = true }
-        }
+        getCheatsEnabledText,
+        toggleCheats,
+        toggleCheats
     )
 end
 
