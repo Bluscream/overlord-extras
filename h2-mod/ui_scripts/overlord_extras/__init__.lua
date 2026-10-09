@@ -1,6 +1,18 @@
 -- Overlord Extras: VR Settings Menu
--- All-in-one module: h2-mod's require() cannot resolve sibling files within the same module folder.
--- Modeled after settings/settings.lua which puts everything inline.
+--
+-- Kept in one file deliberately, matching settings/settings.lua. Sibling
+-- require() does work -- h2-mod's own achievements/__init__.lua does
+-- `require("toast")` -- but one file means one load, one guard and one place to
+-- hot-reload, and the module is not large enough to need splitting.
+
+-- LUI.addmenubutton and LUI.onmenuopen both append; neither replaces. Without
+-- this guard, hot-reloading with `dofile` adds another OVERLORD VR EXTRAS entry
+-- to Options, the campaign menu and the pause menu on every reload.
+if _G.OverlordExtrasMenuLoaded then
+    print("[Overlord Extras] already loaded; skipping re-registration")
+    return
+end
+_G.OverlordExtrasMenuLoaded = true
 
 print("[Overlord Extras] Initializing modular VR settings menu...")
 
@@ -187,7 +199,8 @@ local function buildRenderingOptions(menu)
         menu,
         GenericButtonSettings.Variants.Select,
         "Anti-Aliasing (Post-AA)",
-        "Post-processing anti-aliasing. Set to 'Off' to resolve VR rendering/stereo artifacts, blur, and crashes on Beta 4.",
+        "Post-processing anti-aliasing. Set to 'Off' to resolve VR rendering and "
+            .. "stereo artifacts, blur, and crashes on Beta 4.",
         getPostAAText,
         function() cyclePostAA(1) end,
         function() cyclePostAA(-1) end

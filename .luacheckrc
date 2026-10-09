@@ -1,30 +1,36 @@
 -- The game runs HavokScript, a Lua 5.1 fork, so 5.1 is the closest std.
 std = "lua51"
 
--- Host-provided globals. These are read-only from our side; declaring them
--- keeps luacheck from reporting the entire engine API as undefined, without
--- disabling the check that catches our own accidental globals.
+-- Host-provided globals we only read.
 read_globals = {
-    "Engine",
-    "LUI",
+    "Engine",                 -- dvars, Exec/ExecNow, Localize, PlaySound, GetLuiRoot
+    "CoD",                    -- CoD.TextSettings.*, CoD.SFX.*
+    "Colors",                 -- Colors.grey_14, Colors.h1.*, Colors.h2.*
     "GenericButtonSettings",
     "GenericMenuDims",
     "H1MenuDims",
-    "game",
-    "io",
+    "RegisterMaterial",
+    "game",                   -- methods: game:assetlist(), game:getweapondisplayname()
+    "io",                     -- host replacement: readfile/writefile/fileexists/removefile
 }
 
--- Globals this code deliberately writes. Anything not listed here that is
--- assigned without `local` is a bug.
+-- LUI is written to, not just read: registering a menu assigns into
+-- LUI.MenuBuilder.m_types_build. Declaring it read-only makes that a warning.
 globals = {
+    "LUI",
     "AgentIPC_Active",
+    "OverlordExtrasMenuLoaded",
+    "OverlordCheatsMenuLoaded",
 }
 
-max_line_length = 120
+-- 120 is right for code, but the weapon and model lists are one data row per
+-- entry ({ id, name, desc }) and wrapping them across three lines each makes a
+-- 40-entry table far harder to scan or diff. Code lines are kept under 120.
+max_line_length = 160
 
 -- agent_ipc swaps the global `print` to capture a Lua evaluation's output and
--- restores it on both the success and the error path. There is no other way to
--- capture output from a host-provided print.
+-- restores it on both the success and the error path. The host provides print,
+-- and there is no other way to capture what evaluated code writes.
 files["h2-mod/ui_scripts/agent_ipc/__init__.lua"] = {
     globals = { "AgentIPC_Active", "print" },
 }

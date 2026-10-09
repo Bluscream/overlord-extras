@@ -6,8 +6,123 @@
 -- Gated on the `overlord_cheats_enabled` dvar, which ui_scripts/overlord_extras
 -- registers and toggles. This module only ever reads it.
 
+-- LUI.onmenuopen appends a callback; it does not replace one. Hot-reloading this
+-- file with `dofile` (the documented workflow) would therefore add a second
+-- CHEATS button to the pause menu on every reload. Re-registering the menu
+-- builders is harmless because those are keyed by name, so only the menu hook
+-- needs guarding -- but bail out early so a reload is a visible no-op rather
+-- than a silently duplicated menu.
+if _G.OverlordCheatsMenuLoaded then
+    print("[Overlord Cheats] already loaded; skipping re-registration")
+    return
+end
+_G.OverlordCheatsMenuLoaded = true
+
+-- ============================================================
+-- Toast feedback
+-- ============================================================
+-- There is no notification function in the Engine table; the shipped surface is
+-- Exec/ExecNow, the dvar accessors, Localize/ToUpperCase, PlaySound and
+-- GetLuiRoot. The native cheat commands (god, demigod, notarget, noclip) print
+-- their own CG_GameMessage from C++, but everything routed through `give`,
+-- `spawn_xmodel` or a dvar is silent.
+--
+-- h2-mod's achievements module defines a global `addnotification`, but it is a
+-- 5s/6s QUEUE: clicking ten armory buttons would back up a minute of stale
+-- toasts. This is a single slot that replaces its text and resets its timer
+-- instead, modelled on the element/timer/animation patterns in
+-- h2-mod/ui_scripts/achievements/toast.lua, which are known to work.
+local Toast
+do
+    local SHOW_MS = 2200
+    local FADE_MS = 160
+    local slot, label
+
+    local function root()
+        if type(Engine.GetLuiRoot) == "function" then
+            local ok, r = pcall(Engine.GetLuiRoot)
+            if ok and r then return r end
+        end
+        return LUI.roots and (LUI.roots.UIRoot0 or LUI.roots.UIRootFull)
+    end
+
+    local function build()
+        local parent = root()
+        if not parent then return false end
+        if slot and slot:getParent() then return true end
+
+        local font = CoD.TextSettings.Font21
+        slot = LUI.UIElement.new({
+            topAnchor = true, leftAnchor = true, rightAnchor = true,
+            top = 120, left = 0, right = 0, height = font.Height + 12,
+            alpha = 0
+        })
+        slot.id = "OverlordCheatsToast"
+        -- Priority keeps it above the pause menu, which is where the buttons are.
+        if type(slot.setPriority) == "function" then slot:setPriority(1000) end
+        slot:registerAnimationState("shown", { alpha = 1 })
+        slot:registerAnimationState("hidden", { alpha = 0 })
+
+        local backdrop = LUI.UIImage.new({
+            topAnchor = true, bottomAnchor = true,
+            leftAnchor = true, rightAnchor = true,
+            alpha = 0.55, color = Colors.grey_14
+        })
+
+        label = LUI.UIText.new({
+            topAnchor = true, leftAnchor = true, rightAnchor = true,
+            top = 6, height = font.Height,
+            font = font.Font,
+            alignment = LUI.Alignment.Center
+        })
+
+        slot:addElement(backdrop)
+        slot:addElement(label)
+
+        -- One shared timer, Reset on each message, so a new toast restarts the
+        -- dwell rather than appending to a queue.
+        local timer = LUI.UITimer.new(SHOW_MS, "overlord_toast_expired")
+        slot:addElement(timer)
+        slot:registerEventHandler("overlord_toast_expired", function()
+            LUI.UITimer.Stop(timer)
+            slot:animateToState("hidden", FADE_MS)
+        end)
+        slot.timer = timer
+
+        local ok = pcall(function() parent:addElement(slot) end)
+        if not ok then
+            slot, label = nil, nil
+            return false
+        end
+        return true
+    end
+
+    -- Text only; a toast must never be able to break the button that raised it.
+    Toast = function(text)
+        if type(text) ~= "string" or #text == 0 then return end
+        pcall(function()
+            if not build() then return end
+            label:setText(text)
+            LUI.UITimer.Reset(slot.timer)
+            slot:animateToState("hidden")
+            slot:animateToState("shown", FADE_MS)
+            if CoD and CoD.SFX and CoD.SFX.MenuAccept and type(Engine.PlaySound) == "function" then
+                Engine.PlaySound(CoD.SFX.MenuAccept)
+            end
+        end)
+    end
+end
+
 local function ExecCmd(cmd)
     Engine.Exec(cmd)
+end
+
+-- Exec is queued, so the toast is a statement of what was requested, not of
+-- what the engine went on to do. `give` and `spawn_xmodel` report their own
+-- failures on screen ("Weapon does not exist"), which appears after this.
+local function ExecCmdNotify(cmd, text)
+    Engine.Exec(cmd)
+    Toast(text)
 end
 
 -- Overlord's launcher owns three cheat preferences and re-applies them
@@ -40,9 +155,10 @@ local function IsCheatsUnlocked()
 end
 
 -- A preference button, as opposed to a toggle: it sets one known value.
-local function SetChoice(menu, label, dvar, value, desc)
+local function SetChoice(menu, label, dvar, value, desc, notice)
     menu:AddButton(label, function()
         SetDvarString(dvar, value)
+        Toast(notice or label)
     end, nil, true, nil, { desc_text = desc })
 end
 
@@ -233,7 +349,7 @@ local NPCS_AND_CHARACTERS = {
 local function PopulateWeaponList(menu, list)
     for _, item in ipairs(list) do
         menu:AddButton(item.name, function()
-            ExecCmd("give " .. item.id)
+            ExecCmdNotify("give " .. item.id, "Given: " .. item.name)
         end, nil, true, nil, {
             desc_text = item.desc .. " [Command: give " .. item.id .. "]"
         })
@@ -244,7 +360,7 @@ end
 local function PopulateModelList(menu, list)
     for _, item in ipairs(list) do
         menu:AddButton(item.name, function()
-            ExecCmd("spawn_xmodel " .. item.id)
+            ExecCmdNotify("spawn_xmodel " .. item.id, "Placed: " .. item.name)
         end, nil, true, nil, {
             desc_text = item.desc .. " [static model: spawn_xmodel " .. item.id .. "]"
         })
@@ -316,7 +432,7 @@ LUI.MenuBuilder.registerType("cheats_models_menu", function(root)
     return CreateSubmenu(root, "Place Prop Models (Static)", function(menu, div)
         div(menu, "Scene Cleanup")
         menu:AddButton("^1[CLEAR ALL SPAWNED MODELS]^7", function()
-            ExecCmd("clear_spawned_xmodels")
+            ExecCmdNotify("clear_spawned_xmodels", "Cleared placed models")
         end, nil, true, nil, {
             desc_text = "Remove all models spawned into the scene"
         })
@@ -331,16 +447,21 @@ LUI.MenuBuilder.registerType("cheats_characters_menu", function(root)
         div(menu, "Living Combat AI Spawner")
         -- The GSC side (h2-mod/scripts/actor_spawner.gsc) polls this dvar and
         -- clears it on read, so it acts as a one-shot request rather than a mode.
+        -- actor_spawner.gsc iprintln's the actual outcome a moment later, so
+        -- these only confirm that the request was sent.
         SetChoice(menu, "^2[SPAWN ENEMY SOLDIER (AI)]^7", "cheat_spawn_ai", "axis",
-            "Spawns a live enemy soldier with AI, a weapon, and combat behaviour.")
+            "Spawns a live enemy soldier with AI, a weapon, and combat behaviour.",
+            "Requested enemy soldier")
         SetChoice(menu, "^2[SPAWN FRIENDLY ALLY (AI)]^7", "cheat_spawn_ai", "allies",
-            "Spawns a live allied soldier with AI, a weapon, and combat behaviour.")
+            "Spawns a live allied soldier with AI, a weapon, and combat behaviour.",
+            "Requested friendly ally")
         SetChoice(menu, "^3[SPAWN RANDOM COMBATANT (AI)]^7", "cheat_spawn_ai", "any",
-            "Spawns a live soldier from whichever spawners this level provides.")
+            "Spawns a live soldier from whichever spawners this level provides.",
+            "Requested random combatant")
 
         div(menu, "Static Character Models (No AI)")
         menu:AddButton("^1[CLEAR ALL SPAWNED 3D MODELS]^7", function()
-            ExecCmd("clear_spawned_xmodels")
+            ExecCmdNotify("clear_spawned_xmodels", "Cleared placed models")
         end, nil, true, nil, {
             desc_text = "Remove all static 3D models spawned into the scene"
         })
@@ -349,30 +470,67 @@ LUI.MenuBuilder.registerType("cheats_characters_menu", function(root)
     end)
 end)
 
+-- Every function on the `game` table is bound with the table itself as its
+-- first parameter (`[](const game&, ...)` in ui_scripting.cpp), so these are
+-- METHODS: `game:assetlist(...)`, never `game.assetlist(...)`. A dot call
+-- passes the string where the table is expected and raises "table expected,
+-- got string" out of the menu build. `Engine.*` is the opposite — dot calls.
+local function MissionWeaponNames()
+    if type(game) ~= "table" or game.assetlist == nil then
+        return nil, "the game asset API is unavailable in this build"
+    end
+    -- assetlist throws when the asset type is unknown, and the throw would
+    -- otherwise escape through LUI's dispatcher rather than this menu.
+    local ok, weapons = pcall(function() return game:assetlist("weapon") end)
+    if not ok then
+        return nil, tostring(weapons)
+    end
+    return weapons
+end
+
+local function MissionWeaponLabel(name)
+    if game.getweapondisplayname == nil then
+        return name
+    end
+    local ok, display = pcall(function() return game:getweapondisplayname(name) end)
+    if ok and type(display) == "string" and #display > 0 and display ~= name then
+        return display .. " [" .. name .. "]"
+    end
+    return name
+end
+
 LUI.MenuBuilder.registerType("cheats_mission_weapons_menu", function(root)
     return CreateSubmenu(root, "Active Mission Weapons", function(menu)
-        if game and game.assetlist then
-            local weapons = game.assetlist("weapon")
-            local seen = {}
-            for _, wpn in ipairs(weapons) do
-                if not seen[wpn] and not string.find(wpn, "destructible") and not string.find(wpn, "barrel") and not string.find(wpn, "turret") then
-                    seen[wpn] = true
-                    local dispName = wpn
-                    if game.getweapondisplayname then
-                        local d = game.getweapondisplayname(wpn)
-                        if d and #d > 0 and d ~= wpn then
-                            dispName = d .. " [" .. wpn .. "]"
-                        end
-                    end
-                    menu:AddButton(dispName, function()
-                        ExecCmd("give " .. wpn)
-                    end, nil, true, nil, {
-                        desc_text = "Spawn active weapon: " .. wpn
-                    })
-                end
+        local weapons, err = MissionWeaponNames()
+        if not weapons then
+            menu:AddButton("^1Asset list unavailable^7", function() end, nil, true, nil, {
+                desc_text = err
+            })
+            return
+        end
+
+        local seen = {}
+        local shown = 0
+        for _, wpn in ipairs(weapons) do
+            if not seen[wpn]
+                and not string.find(wpn, "destructible", 1, true)
+                and not string.find(wpn, "barrel", 1, true)
+                and not string.find(wpn, "turret", 1, true) then
+                seen[wpn] = true
+                shown = shown + 1
+                local label = MissionWeaponLabel(wpn)
+                menu:AddButton(label, function()
+                    ExecCmdNotify("give " .. wpn, "Given: " .. label)
+                end, nil, true, nil, {
+                    desc_text = "Spawn active weapon: " .. wpn
+                })
             end
-        else
-            menu:AddButton("Asset list unavailable", function() end)
+        end
+
+        if shown == 0 then
+            menu:AddButton("^1No weapons loaded in this level^7", function() end, nil, true, nil, {
+                desc_text = "The asset list returned nothing this level loads."
+            })
         end
     end)
 end)
@@ -451,48 +609,58 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
     return CreateSubmenu(root, "Cheats & Sandbox", function(menu, div)
         div(menu, "Damage Protection")
         SetChoice(menu, "^2Protection: Godmode^7", CHEAT_HEALTH_DVAR, "god",
-            "Immune to all damage. Scripted mission deaths still apply.")
+            "Immune to all damage. Scripted mission deaths still apply.",
+            "Protection: godmode")
         SetChoice(menu, "^2Protection: Demigod^7", CHEAT_HEALTH_DVAR, "demigod",
-            "Immune to damage, but still flinches and shows hit feedback.")
+            "Immune to damage, but still flinches and shows hit feedback.",
+            "Protection: demigod")
         SetChoice(menu, "^1Protection: Off^7", CHEAT_HEALTH_DVAR, "off",
-            "Take normal damage again.")
+            "Take normal damage again.",
+            "Protection: off")
 
         div(menu, "AI Targeting")
         SetChoice(menu, "^3No Target: On^7", CHEAT_NOTARGET_DVAR, "on",
-            "Enemies stop targeting you. Your model is still visible.")
+            "Enemies stop targeting you. Your model is still visible.",
+            "No target: on")
         SetChoice(menu, "^1No Target: Off^7", CHEAT_NOTARGET_DVAR, "off",
-            "Enemies target you normally again.")
+            "Enemies target you normally again.",
+            "No target: off")
 
         div(menu, "Flight & Collision")
         -- No launcher preference exists for these two, so they stay native
         -- toggles and nothing re-applies them behind the menu's back.
+        -- noclip prints its own "noclip ON/OFF" from C++ (command.cpp), so a
+        -- toast here would duplicate it. ufo has no such message.
         menu:AddButton("^5Toggle Noclip^7", function()
             ExecCmd("noclip")
         end, nil, true, nil, { desc_text = "Toggle noclip through walls and terrain (noclip)" })
 
         menu:AddButton("^5Toggle UFO Mode^7", function()
-            ExecCmd("ufo")
+            ExecCmdNotify("ufo", "Toggled UFO mode")
         end, nil, true, nil, { desc_text = "Toggle free flight camera movement (ufo)" })
 
         div(menu, "Sustained Ammunition")
         SetChoice(menu, "^3Sustained Ammo: Infinite^7", CHEAT_AMMO_DVAR, "infinite",
-            "Never consume ammunition and never need to reload.")
+            "Never consume ammunition and never need to reload.",
+            "Sustained ammo: infinite")
         SetChoice(menu, "^3Sustained Ammo: Infinite Reserve^7", CHEAT_AMMO_DVAR, "reserve",
-            "Reserve ammunition stays topped up; magazines still need reloading.")
+            "Reserve ammunition stays topped up; magazines still need reloading.",
+            "Sustained ammo: infinite reserve")
         SetChoice(menu, "^1Sustained Ammo: Off^7", CHEAT_AMMO_DVAR, "off",
-            "Consume ammunition normally again.")
+            "Consume ammunition normally again.",
+            "Sustained ammo: off")
 
         div(menu, "One-Shot Refills")
         menu:AddButton("^2Refill Max Health^7", function()
-            ExecCmd("give health")
+            ExecCmdNotify("give health", "Health restored")
         end, nil, true, nil, { desc_text = "Instantly restore player health to 100%" })
 
         menu:AddButton("^3Refill Current Ammo^7", function()
-            ExecCmd("give ammo")
+            ExecCmdNotify("give ammo", "Ammo refilled")
         end, nil, true, nil, { desc_text = "Refill magazines and reserve ammo for current weapon" })
 
         menu:AddButton("^3Refill All Weapons Ammo^7", function()
-            ExecCmd("give allammo")
+            ExecCmdNotify("give allammo", "Ammo refilled for all weapons")
         end, nil, true, nil, { desc_text = "Refill ammo for all carried weapons and modules" })
 
         div(menu, "Armory & Entity Spawners")
@@ -506,15 +674,18 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
 
         menu:AddButton("^4[PLACE PROP MODELS (STATIC)]^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_models_menu")
-        end, nil, true, nil, { desc_text = "Place static models in front of you: laptops, briefcase, DSM, UAV, ice picks. No collision or physics." })
+        end, nil, true, nil, {
+            desc_text = "Place static models in front of you: laptops, briefcase, "
+                .. "DSM, UAV, ice picks. No collision or physics."
+        })
 
         div(menu, "Inventory Control")
         menu:AddButton("^1Drop Current Weapon^7", function()
-            ExecCmd("dropweapon")
+            ExecCmdNotify("dropweapon", "Dropped current weapon")
         end, nil, true, nil, { desc_text = "Drop the currently active weapon onto the ground" })
 
         menu:AddButton("^1Take All Weapons^7", function()
-            ExecCmd("take all")
+            ExecCmdNotify("take all", "Removed all weapons")
         end, nil, true, nil, { desc_text = "Remove all weapons from inventory (empty hands)" })
     end)
 end)

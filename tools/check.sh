@@ -60,7 +60,7 @@ step "Lua parse check (5.1 syntax)"
 # The game's HavokScript is a Lua 5.1 fork, so a 5.1-compatible parser is the
 # right check. LuaJIT is 5.1-compatible and is already present on this host.
 lua_parser=""
-for candidate in luajit luac5.1 lua5.1; do
+for candidate in luac5.1 luajit lua5.1; do
   if command -v "${candidate}" >/dev/null 2>&1; then
     lua_parser="${candidate}"
     break
@@ -99,17 +99,30 @@ else
   skip ruff
 fi
 
-# GSC has no parser available outside the engine. Check what can be checked
-# mechanically rather than reporting a pass we did not earn.
-step "GSC brace balance (no parser exists off-engine)"
-while IFS= read -r file; do
-  opens="$(tr -cd '{' <"${file}" | wc -c)"
-  closes="$(tr -cd '}' <"${file}" | wc -c)"
-  if [[ "${opens}" != "${closes}" ]]; then
-    fail "${file}: ${opens} '{' vs ${closes} '}'"
-  fi
-done < <(git ls-files '*.gsc' '*.csc')
-printf 'GSC files are not parse-checked; verify in game with developer 1.\n'
+# gsc-tool is the engine's own compiler front end, so `--mode comp --dry`
+# reproduces the errors the game would print at load, including semantic ones a
+# parse alone misses (a local declared inside an `if` is not visible after it).
+# MW2CR is the h2 title on pc.
+step "GSC compile check (gsc-tool, game=h2)"
+mapfile -t gsc_files < <(git ls-files '*.gsc' '*.csc')
+if [[ ${#gsc_files[@]} -eq 0 ]]; then
+  printf 'no GSC files\n'
+elif command -v gsc-tool >/dev/null 2>&1; then
+  for file in "${gsc_files[@]}"; do
+    gsc-tool --mode comp --game h2 --system pc --dry "${file}" || fail "gsc-tool comp ${file}"
+  done
+  printf 'compiled %d GSC file(s)\n' "${#gsc_files[@]}"
+else
+  skip gsc-tool
+  # Fall back to the only thing shell can assert without a compiler.
+  for file in "${gsc_files[@]}"; do
+    opens="$(tr -cd '{' <"${file}" | wc -c)"
+    closes="$(tr -cd '}' <"${file}" | wc -c)"
+    if [[ "${opens}" != "${closes}" ]]; then
+      fail "${file}: ${opens} '{' vs ${closes} '}'"
+    fi
+  done
+fi
 
 printf '\n============================================\n'
 printf 'failures: %d   skipped checks: %d\n' "${failures}" "${skips}"

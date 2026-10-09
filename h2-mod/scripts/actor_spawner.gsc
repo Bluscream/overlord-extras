@@ -11,7 +11,12 @@
 // Note: GSC has no file-scope constants in this dialect, so the two tunables
 // (poll interval and spawn distance) are locals at their point of use.
 
-main()
+// Overlord's loader calls main() from G_LoadStructs and init() from
+// Scr_LoadLevel (src/client/component/gsc/script_loading.cpp). main() is the
+// load/precache phase, where level.player does not exist yet; init() runs once
+// the level is up. A runtime watcher belongs in init(), so the thread is not
+// polling a dvar through the whole structs phase.
+init()
 {
     thread watch_spawner_dvar();
 }
@@ -78,19 +83,18 @@ spawn_actor_near_player(team)
     // `spawner.count` is the level's own budget for that spawner. Setting it to
     // 999 and walking away made the spawner effectively infinite for the rest of
     // the mission, so borrow one spawn and put the original count back.
-    had_count = isdefined(spawner.count);
-    if (had_count)
-    {
-        previous_count = spawner.count;
-    }
+    //
+    // previous_count is captured unconditionally: a local declared inside an
+    // `if` block is not visible after it, so reading it from a second `if` is a
+    // compile error ("local variable 'previous_count' not found"). Restoring an
+    // undefined value unsets the field, which is the correct restore when the
+    // spawner had no count of its own.
+    previous_count = spawner.count;
     spawner.count = 1;
 
     actor = spawner stalingradspawn();
 
-    if (had_count)
-    {
-        spawner.count = previous_count;
-    }
+    spawner.count = previous_count;
 
     if (!isdefined(actor))
     {
