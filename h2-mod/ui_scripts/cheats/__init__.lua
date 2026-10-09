@@ -11,6 +11,26 @@ local function ExecCmd(cmd)
     Engine.Exec(cmd)
 end
 
+local function createDivider(menu, text)
+    local element = LUI.UIElement.new({
+        leftAnchor = true,
+        rightAnchor = true,
+        left = 0,
+        right = 0,
+        topAnchor = true,
+        bottomAnchor = false,
+        top = 0,
+        bottom = 33.33
+    })
+
+    element.scrollingToNext = true
+    element:addElement(LUI.MenuBuilder.BuildRegisteredType("h1_option_menu_titlebar", {
+        title_bar_text = Engine.ToUpperCase(Engine.Localize(text))
+    }))
+
+    menu.list:addElement(element)
+end
+
 -- Submenu creation helper
 local function CreateSubmenu(root, title, populateFunc)
     local menuwidth = 650
@@ -24,7 +44,7 @@ local function CreateSubmenu(root, title, populateFunc)
     })
 
     if populateFunc then
-        populateFunc(menu)
+        populateFunc(menu, createDivider)
     end
 
     if LUI.Options and LUI.Options.InitScrollingList then
@@ -258,19 +278,23 @@ LUI.MenuBuilder.registerType("cheats_throwable_menu", function(root)
 end)
 
 LUI.MenuBuilder.registerType("cheats_models_menu", function(root)
-    return CreateSubmenu(root, "Spawn Props & Equipment", function(menu)
+    return CreateSubmenu(root, "Spawn Props & Equipment", function(menu, div)
+        div(menu, "Scene Cleanup")
         menu:AddButton("^1[CLEAR ALL SPAWNED MODELS]^7", function()
             ExecCmd("clear_spawned_xmodels")
         end, nil, true, nil, {
             desc_text = "Remove all models spawned into the scene"
         })
+
+        div(menu, "Mission Props & Interactive Gear")
         PopulateModelList(menu, MODELS_MISSION_ITEMS)
     end)
 end)
 
 LUI.MenuBuilder.registerType("cheats_characters_menu", function(root)
-    return CreateSubmenu(root, "Characters & NPCs", function(menu)
-        menu:AddButton("^2[SPAWN LIVING ENEMY SOLDIER (AI)]^7", function()
+    return CreateSubmenu(root, "Characters & NPCs", function(menu, div)
+        div(menu, "Living Combat AI Spawner")
+        menu:AddButton("^2[SPAWN ENEMY SOLDIER (AI)]^7", function()
             if Engine.SetDvarString then
                 Engine.SetDvarString("cheat_spawn_ai", "axis")
             else
@@ -280,7 +304,7 @@ LUI.MenuBuilder.registerType("cheats_characters_menu", function(root)
             desc_text = "Spawns an active combat enemy soldier with AI, weapon and behavior"
         })
 
-        menu:AddButton("^2[SPAWN LIVING FRIENDLY SOLDIER (AI)]^7", function()
+        menu:AddButton("^2[SPAWN FRIENDLY ALLY (AI)]^7", function()
             if Engine.SetDvarString then
                 Engine.SetDvarString("cheat_spawn_ai", "allies")
             else
@@ -290,7 +314,7 @@ LUI.MenuBuilder.registerType("cheats_characters_menu", function(root)
             desc_text = "Spawns an active friendly allied combat soldier with AI"
         })
 
-        menu:AddButton("^2[SPAWN RANDOM SOLDIER (AI)]^7", function()
+        menu:AddButton("^3[SPAWN RANDOM COMBATANT (AI)]^7", function()
             if Engine.SetDvarString then
                 Engine.SetDvarString("cheat_spawn_ai", "any")
             else
@@ -300,6 +324,7 @@ LUI.MenuBuilder.registerType("cheats_characters_menu", function(root)
             desc_text = "Spawns a random active AI soldier into the scene"
         })
 
+        div(menu, "Static 3D Character Models")
         menu:AddButton("^1[CLEAR ALL SPAWNED 3D MODELS]^7", function()
             ExecCmd("clear_spawned_xmodels")
         end, nil, true, nil, {
@@ -340,48 +365,52 @@ end)
 
 -- Weapons & Gear Spawner Hub
 LUI.MenuBuilder.registerType("cheats_armory_menu", function(root)
-    return CreateSubmenu(root, "Armory & Item Spawner", function(menu)
+    return CreateSubmenu(root, "Armory & Item Spawner", function(menu, div)
+        div(menu, "Mission Inventory Inspection")
         menu:AddButton("^2[ACTIVE MISSION WEAPONS (AUTO-DETECT)]^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_mission_weapons_menu")
         end, nil, true, nil, { desc_text = "Dynamically inspect and spawn any weapon loaded into the current mission" })
 
-        menu:AddButton("Assault Rifles", function()
+        div(menu, "Primary Firearms")
+        menu:AddButton("^3Assault Rifles^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_ar_menu")
         end, nil, true, nil, { desc_text = "Spawn M4A1, AK-47, SCAR-H, ACR, FAMAS, etc." })
 
-        menu:AddButton("Submachine Guns", function()
+        menu:AddButton("^3Submachine Guns^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_smg_menu")
         end, nil, true, nil, { desc_text = "Spawn UMP45, MP5K, P90, Vector, Mini-Uzi" })
 
-        menu:AddButton("Shotguns", function()
+        menu:AddButton("^3Shotguns^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_shotgun_menu")
         end, nil, true, nil, { desc_text = "Spawn SPAS-12, AA-12, Model 1887, Ranger, Striker" })
 
-        menu:AddButton("Light Machine Guns", function()
+        menu:AddButton("^3Light Machine Guns^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_lmg_menu")
         end, nil, true, nil, { desc_text = "Spawn RPD, M240, MG4, AUG HBAR, L86 LSW" })
 
-        menu:AddButton("Sniper & Marksman Rifles", function()
+        menu:AddButton("^3Sniper & Marksman Rifles^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_sniper_menu")
         end, nil, true, nil, { desc_text = "Spawn Intervention, Barrett .50cal, M14 EBR, Dragunov" })
 
-        menu:AddButton("Handguns & Machine Pistols", function()
+        div(menu, "Sidearms & Heavy Ordnance")
+        menu:AddButton("^5Handguns & Machine Pistols^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_handgun_menu")
         end, nil, true, nil, { desc_text = "Spawn M9, USP .45, .44 Magnum, Desert Eagle, G18, Raffica" })
 
-        menu:AddButton("Launchers & Heavy", function()
+        menu:AddButton("^5Launchers & Heavy^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_launcher_menu")
         end, nil, true, nil, { desc_text = "Spawn RPG-7, AT4, Javelin, Stinger, M79 Thumper" })
 
-        menu:AddButton("Special Melee & Knives", function()
+        div(menu, "Melee, Equipment & Story Items")
+        menu:AddButton("^4Special Melee & Knives^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_melee_menu")
         end, nil, true, nil, { desc_text = "Spawn Ending Knife, Bloody Knife, Commando Bayonet, Ice Picks" })
 
-        menu:AddButton("Mission & Story Items", function()
+        menu:AddButton("^4Mission & Story Items^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_mission_menu")
         end, nil, true, nil, { desc_text = "Spawn AGM/Predator Laptop, Laser Designator, C4, Claymores, Flare" })
 
-        menu:AddButton("Throwables & Fun Cheats", function()
+        menu:AddButton("^6Throwables & Fun Cheats^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_throwable_menu")
         end, nil, true, nil, { desc_text = "Spawn Frag, Semtex, Flash, Pomegranate, Football" })
     end)
@@ -405,60 +434,60 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
         end)
     end
 
-    return CreateSubmenu(root, "Cheats & Sandbox", function(menu)
-        -- Survival & Flight Cheats
-        menu:AddButton("Toggle Godmode", function()
+    return CreateSubmenu(root, "Cheats & Sandbox", function(menu, div)
+        div(menu, "Invulnerability & Flight")
+        menu:AddButton("^2Toggle Godmode^7", function()
             ExecCmd("god")
         end, nil, true, nil, { desc_text = "Toggle invulnerability against all damage (god)" })
 
-        menu:AddButton("Toggle Demigod", function()
+        menu:AddButton("^2Toggle Demigod^7", function()
             ExecCmd("demigod")
         end, nil, true, nil, { desc_text = "Toggle demigod mode (invulnerable with health flinching)" })
 
-        menu:AddButton("Toggle No Target (Ignore by AI)", function()
+        menu:AddButton("^3Toggle No Target (Stealth)^7", function()
             ExecCmd("notarget")
         end, nil, true, nil, { desc_text = "Toggle enemies ignoring player presence (notarget)" })
 
-        menu:AddButton("Toggle Noclip", function()
+        menu:AddButton("^5Toggle Noclip^7", function()
             ExecCmd("noclip")
         end, nil, true, nil, { desc_text = "Toggle noclip through walls and terrain (noclip)" })
 
-        menu:AddButton("Toggle UFO Mode", function()
+        menu:AddButton("^5Toggle UFO Mode^7", function()
             ExecCmd("ufo")
         end, nil, true, nil, { desc_text = "Toggle free flight camera movement (ufo)" })
 
-        -- Health & Ammunition Actions
-        menu:AddButton("Refill Max Health", function()
+        div(menu, "Health & Ammunition")
+        menu:AddButton("^2Refill Max Health^7", function()
             ExecCmd("give health")
         end, nil, true, nil, { desc_text = "Instantly restore player health to 100%" })
 
-        menu:AddButton("Refill Current Ammo", function()
+        menu:AddButton("^3Refill Current Ammo^7", function()
             ExecCmd("give ammo")
         end, nil, true, nil, { desc_text = "Refill magazines and reserve ammo for current weapon" })
 
-        menu:AddButton("Refill All Weapons Ammo", function()
+        menu:AddButton("^3Refill All Weapons Ammo^7", function()
             ExecCmd("give allammo")
         end, nil, true, nil, { desc_text = "Refill ammo for all carried weapons and modules" })
 
-        -- Weapon & Spawner Submenus
-        menu:AddButton("Armory (Spawn Any Weapon)", function()
+        div(menu, "Armory & Entity Spawners")
+        menu:AddButton("^6[ARMORY (WEAPONS & ITEMS)]^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_armory_menu")
         end, nil, true, nil, { desc_text = "Browse and spawn every weapon, launcher, and item in the game" })
 
-        menu:AddButton("Spawn Props & Interactive Equipment", function()
+        menu:AddButton("^4[SPAWN CHARACTERS & LIVING AI]^7", function()
+            LUI.FlowManager.RequestAddMenu(nil, "cheats_characters_menu")
+        end, nil, true, nil, { desc_text = "Spawn living combat AI soldiers or 3D character models" })
+
+        menu:AddButton("^4[SPAWN PROPS & INTERACTIVE EQUIPMENT]^7", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_models_menu")
         end, nil, true, nil, { desc_text = "Spawn 3D world models: Laptops, Briefcase, DSM, UAV, Ice Picks" })
 
-        menu:AddButton("Spawn Characters & NPCs", function()
-            LUI.FlowManager.RequestAddMenu(nil, "cheats_characters_menu")
-        end, nil, true, nil, { desc_text = "Spawn Soap, Price, Ghost, Makarov, Shepherd, Juggernauts" })
-
-        -- Inventory Management
-        menu:AddButton("Drop Current Weapon", function()
+        div(menu, "Inventory Control")
+        menu:AddButton("^1Drop Current Weapon^7", function()
             ExecCmd("dropweapon")
         end, nil, true, nil, { desc_text = "Drop the currently active weapon onto the ground" })
 
-        menu:AddButton("Take All Weapons", function()
+        menu:AddButton("^1Take All Weapons^7", function()
             ExecCmd("take all")
         end, nil, true, nil, { desc_text = "Remove all weapons from inventory (empty hands)" })
     end)
