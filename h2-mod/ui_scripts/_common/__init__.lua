@@ -94,6 +94,41 @@ function M.GetDvarString(dvar, fallback)
 end
 
 -- ============================================================
+-- Player-state dvar registration
+-- ============================================================
+-- scripts/player_state.gsc publishes live player state into these dvars,
+-- because the Engine table has no accessor for any of it.
+--
+-- They are registered HERE, unconditionally, at UI load time. Reading a dvar
+-- that was never registered faults inside the native accessor (0xC0000005);
+-- the fault is in C++, below Lua, so wrapping the read in `pcall` does not
+-- catch it and `tostring()` on the result does not help -- nothing reaches Lua
+-- at all. The host CLI reads these names, and in the frontend no level is
+-- loaded and the GSC has never run, so without this they would not exist.
+--
+-- `set`, not `seta`: this is transient per-level state and has no business
+-- being archived into the player's config.
+local PLAYER_STATE_DVARS = {
+    "overlord_ps_tick",
+    "overlord_ps_origin",
+    "overlord_ps_angles",
+    "overlord_ps_health",
+    "overlord_ps_stance",
+    "overlord_ps_weapon",
+    "overlord_ps_weapon_count",
+    "overlord_ps_weapons",
+}
+
+-- Writing is always safe; only reading an unknown name faults. So this
+-- registers by writing and never probes for prior existence. The GSC
+-- overwrites these the moment a level comes up.
+local function register_player_state_dvars()
+    for _, dvar in ipairs(PLAYER_STATE_DVARS) do
+        M.Exec(string.format('set %s ""', dvar))
+    end
+end
+
+-- ============================================================
 -- Toast feedback
 -- ============================================================
 -- There is no notification function anywhere in the Engine table. The native
@@ -232,6 +267,8 @@ function M.AddChoiceButton(menu, label, dvar, value, desc, notice)
         M.Toast(notice or label)
     end)
 end
+
+register_player_state_dvars()
 
 _G.OverlordCommon = M
 print("[Overlord Common] shared helpers registered")

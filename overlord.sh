@@ -26,6 +26,10 @@ IPC_TIMEOUT_SEC="${OVERLORD_IPC_TIMEOUT:-3}"
 # name starts with an underscore so it sorts, and therefore loads, first.
 UI_SCRIPT_MODULES=(_common overlord_extras agent_ipc cheats)
 
+# Every GSC script this repo owns, for the same reason: uninstall and status
+# both walk this list rather than naming one file each.
+GSC_SCRIPTS=(actor_spawner.gsc player_state.gsc)
+
 # Steam shortcut specifics
 STEAM_SHORTCUT_ID="17596034734578728960"
 STEAM_APPID="4096896093"
@@ -530,7 +534,10 @@ uninstall() {
       log_info "Removed ui_scripts/${module}"
     fi
   done
-  rm -f "${GAME_DIR}/h2-mod/scripts/actor_spawner.gsc"
+  local script
+  for script in "${GSC_SCRIPTS[@]}"; do
+    rm -f "${GAME_DIR}/h2-mod/scripts/${script}"
+  done
   rm -f "${GAME_DIR}/overlord.sh"
 
   if [[ "${mode}" == "--all" || "${mode}" == "all" || "${mode}" == "--full" ]]; then
@@ -576,14 +583,141 @@ show_status() {
     printf "%-25s: \033[1;33mIncomplete\033[0m (missing: %s)\n" "Overlord Extras" "$(join_words "${missing[@]}")"
   fi
 
-  local gsc_status="Missing"
-  [[ -f "${GAME_DIR}/h2-mod/scripts/actor_spawner.gsc" ]] && gsc_status="Deployed"
-  printf "%-25s: %s\n" "AI spawner (GSC)" "${gsc_status}"
+  local script gsc_ok=() gsc_missing=()
+  for script in "${GSC_SCRIPTS[@]}"; do
+    if [[ -f "${GAME_DIR}/h2-mod/scripts/${script}" ]]; then
+      gsc_ok+=("${script}")
+    else
+      gsc_missing+=("${script}")
+    fi
+  done
+  if [[ ${#gsc_missing[@]} -eq 0 ]]; then
+    printf "%-25s: Deployed (%s)\n" "GSC scripts" "$(join_words "${gsc_ok[@]}")"
+  else
+    printf "%-25s: \033[1;33mIncomplete\033[0m (missing: %s)\n" "GSC scripts" "$(join_words "${gsc_missing[@]}")"
+  fi
 
   # Test IPC if running
   if [[ -n "${pids}" ]]; then
     printf "%-25s: " "IPC Bridge Status"
     ipc_send_and_wait "eval: return { overlord_active = true, map = Engine.GetDvarString and Engine.GetDvarString('mapname') or 'unknown' }" || echo "Not responding"
+  fi
+  printf "\n"
+}
+
+# Read the player-state dvars that scripts/player_state.gsc publishes.
+#
+# Only names that ui_scripts/_common registers at UI load time are read here.
+# Reading an unregistered dvar faults in the native accessor (0xC0000005) and
+# takes the game down -- a Lua pcall does not catch it, because the fault is in
+# C++ below Lua. Never add a name to this list without registering it first.
+PLAYER_STATE_FIELDS=(tick origin angles health stance weapon weapon_count weapons)
+
+sample_player_state() {
+  # Built as one line: the IPC bridge is line-oriented and rejects embedded
+  # newlines.
+  local lua='local d={'
+  local f
+  for f in "${PLAYER_STATE_FIELDS[@]}"; do lua+="\"${f}\","; done
+  lua+='}; local o={}; for _,k in ipairs(d) do o[#o+1]=k.."="..tostring(Engine.GetDvarString("overlord_ps_"..k)) end; return table.concat(o,"|")'
+
+  ipc_send_and_wait "eval: ${lua}" 2>/dev/null | sed -n 's/^\[LUA\] => "\(.*\)"$/\1/p'
+}
+
+show_player_status() {
+  local pids
+  pids="$(get_game_pids)"
+  if [[ -z "${pids}" ]]; then
+    log_error "Game is not running; player state is only published while a level is loaded."
+    return 1
+  fi
+
+  # Refuse to read if the running game predates the deployed _common.
+  #
+  # These dvars only exist because ui_scripts/_common registers them at UI load
+  # time. A game that was already running when the module was deployed never
+  # ran that code, so the names do not exist in it -- and reading a name that
+  # does not exist faults in the native accessor and kills the game. This check
+  # is entirely host-side (process start time vs. file mtime) precisely because
+  # asking the game is the dangerous operation.
+  local deployed_at proc_started now elapsed
+  deployed_at="$(stat -c %Y "${GAME_DIR}/h2-mod/ui_scripts/_common/__init__.lua" 2>/dev/null || echo 0)"
+  elapsed="$(ps -o etimes= -p "$(printf '%s' "${pids}" | head -n 1 | awk '{print $1}')" 2>/dev/null | tr -d ' ')"
+  if [[ -n "${elapsed}" && "${elapsed}" =~ ^[0-9]+$ && "${deployed_at}" != "0" ]]; then
+    now="$(date +%s)"
+    proc_started=$((now - elapsed))
+    if ((proc_started < deployed_at)); then
+      log_error "The running game started before the current ui_scripts/_common was deployed."
+      printf "\nIt never registered the overlord_ps_* dvars, and reading an unregistered\n"
+      printf "dvar faults inside the native accessor (0xC0000005) -- it would crash the\n"
+      printf "game. Restart it so the current modules load, then try again.\n\n"
+      return 1
+    fi
+  fi
+
+  local first second
+  first="$(sample_player_state)"
+  if [[ -z "${first}" ]]; then
+    log_error "No response from the IPC bridge."
+    return 1
+  fi
+
+  # A second sample proves the GSC publisher thread is actually running. The
+  # dvars persist after it stops (level end, player death), so a frozen tick is
+  # the only way to tell live data from a leftover snapshot.
+  sleep 0.5
+  second="$(sample_player_state)"
+
+  declare -A state
+  local pair
+  while IFS= read -r pair; do
+    [[ -z "${pair}" ]] && continue
+    state["${pair%%=*}"]="${pair#*=}"
+  done < <(printf '%s' "${first}" | tr '|' '\n')
+
+  local tick_a="${state[tick]:-}" tick_b=""
+  tick_b="$(printf '%s' "${second}" | tr '|' '\n' | sed -n 's/^tick=//p')"
+
+  printf "\n=== Overlord Player State ===\n"
+
+  if [[ -z "${tick_a}" || "${tick_a}" == "nil" || "${tick_a}" == "0" || "${tick_a}" == "" ]]; then
+    printf "%-25s: \033[1;33mNOT PUBLISHED\033[0m\n" "Publisher"
+    printf "\nNo level is loaded, or scripts/player_state.gsc is not deployed.\n"
+    printf "Player state only exists while a mission is running.\n\n"
+    return 0
+  fi
+
+  if [[ "${tick_a}" == "${tick_b}" ]]; then
+    printf "%-25s: \033[1;33mSTALE\033[0m (tick frozen at %s)\n" "Publisher" "${tick_a}"
+    printf "%-25s: %s\n" "" "Values below are a leftover snapshot, not live."
+  else
+    printf "%-25s: \033[1;32mLIVE\033[0m (tick %s -> %s)\n" "Publisher" "${tick_a}" "${tick_b}"
+  fi
+
+  printf "%-25s: %s\n" "Map" "$(ipc_send_and_wait 'eval: return tostring(Engine.GetDvarString("mapname"))' 2>/dev/null | sed -n 's/^\[LUA\] => "\(.*\)"$/\1/p')"
+  printf "%-25s: %s\n" "Origin (x y z)" "${state[origin]:-?}"
+  printf "%-25s: %s\n" "Angles (pitch yaw roll)" "${state[angles]:-?}"
+  printf "%-25s: %s\n" "Health (cur max)" "${state[health]:-?}"
+  printf "%-25s: %s\n" "Stance" "${state[stance]:-?}"
+  printf "%-25s: %s\n" "Weapon in hand" "${state[weapon]:-?}"
+
+  # 15 is the native ownership array's capacity (weapon_carry.hpp); past it
+  # reconcile_instances refuses and newly given weapons stop being placed at
+  # all, which looks like `give` silently failing.
+  local count="${state[weapon_count]:-0}"
+  if [[ "${count}" =~ ^[0-9]+$ ]] && ((count >= 15)); then
+    printf "%-25s: \033[1;31m%s / 15 (AT CAP)\033[0m\n" "Weapons carried" "${count}"
+    printf "%-25s: %s\n" "" "New weapons will not be placed. Run 'take all' to clear."
+  else
+    printf "%-25s: %s / 15\n" "Weapons carried" "${count}"
+  fi
+
+  local weapons="${state[weapons]:-}"
+  if [[ -n "${weapons}" && "${weapons}" != "nil" ]]; then
+    printf "%-25s:\n" "Inventory"
+    printf '%s' "${weapons}" | tr ',' '\n' | while IFS= read -r wpn; do
+      [[ -n "${wpn}" ]] && printf "  - %s\n" "${wpn}"
+    done
   fi
   printf "\n"
 }
@@ -604,6 +738,8 @@ Core Commands:
   stop, exit                 Gracefully exit the game via IPC / SIGTERM
   kill                       Force-kill running game processes and clear IPC files
   status                     Display game process, version, and extras status
+  status --player, player    Live player position, rotation, health, stance
+                             and carried weapons (needs a loaded level)
   point-steam                Point the Steam custom game shortcut to this launcher
 
 Version Management:
@@ -659,7 +795,16 @@ case "${ACTION}" in
     ;;
 
   status)
-    show_status
+    # ACTION was shifted off above, so the subcommand is $1 here.
+    if [[ "${1:-}" == "--player" || "${1:-}" == "player" ]]; then
+      show_player_status
+    else
+      show_status
+    fi
+    ;;
+
+  player | --player)
+    show_player_status
     ;;
 
   point-steam | steam-setup | link-steam)

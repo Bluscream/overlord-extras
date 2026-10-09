@@ -172,12 +172,36 @@ prove it. Use `type(x) == "function"`, not a truthiness check:
 if type(Engine.SetDvarString) == "function" then ... end
 ```
 
-### An unregistered dvar reads back `nil`
+### Never read a dvar that might not exist
 
-`nil .. "text"` is an error that propagates out of the dispatcher as an access
-violation. Register the dvar first, and prefer `string.format("%s", v)` over
-`..` for anything that could be nil — `%s` calls `tostring`, concatenation does
-not.
+**Reading an unregistered dvar name crashes the game.** `Engine.GetDvarString`
+on a name that was never registered faults inside the native accessor —
+`0xC0000005`, an access violation in C++. Confirmed the hard way on 2026-10-09:
+probing invented names (`vr_playerOrigin`, `vr_hmdPose`, `vr_status` …) to find
+out which existed killed the process twice in 13 seconds.
+
+Two things that look like protection and are not:
+
+- **`pcall` does not catch it.** `pcall` catches *Lua* errors. The faulting
+  frame is native, below Lua, so the process is gone before Lua regains
+  control. A `pcall`-wrapped probe is exactly as fatal as a bare one.
+- **`tostring()` does not help.** It guards the *result*; the fault happens
+  during the *call*. Nothing ever reaches Lua to be stringified.
+
+So there is no safe way to ask "does this dvar exist?" from Lua. The rule is to
+never need to ask: **register by writing before anything reads.** Writing an
+unknown name is safe — it creates it. `ui_scripts/_common` does this for every
+`overlord_ps_*` name at UI load time, and `scripts/player_state.gsc` does it
+again with `setdvar()` before its first read.
+
+If you need to know whether a running game has a given name registered, decide
+it **host-side** — `overlord.sh status --player` compares the process start time
+against the deployed module's mtime — rather than probing in-game.
+
+A separate, milder hazard once a dvar *is* registered: a read can still return
+`nil`, and `nil .. "text"` is a Lua error that surfaces out of the LUI
+dispatcher as an access violation too. Prefer `string.format("%s", v)` over
+`..` for anything nilable — `%s` calls `tostring`, concatenation does not.
 
 ### Registration appends; it does not replace
 
