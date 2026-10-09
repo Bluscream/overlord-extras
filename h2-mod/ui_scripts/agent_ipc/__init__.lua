@@ -162,7 +162,18 @@ local function handle_payload(raw)
                 common.SetDvarString(var, val)
                 table.insert(out_parts, "[DVAR SET] " .. var .. " = " .. val)
             else
-                -- Get dvar
+                -- Get dvar.
+                --
+                -- UNSAFE BY NATURE, and deliberately kept: reading a name that
+                -- was never registered faults inside the native accessor
+                -- (0xC0000005) and kills the game. The name here comes from the
+                -- host, so this path can only be as safe as its caller. There
+                -- is no way to test for existence first -- the test is the
+                -- dangerous operation.
+                --
+                -- Debug tool, not a building block. Automated callers must read
+                -- only names they registered themselves by writing; see
+                -- show_player_status in overlord.sh for how to do that.
                 var = dvar_part
                 local val_str = Engine and Engine.GetDvarString and Engine.GetDvarString(var)
                 table.insert(out_parts, "[DVAR GET] " .. var .. " = " .. tostring(val_str))
@@ -292,3 +303,6 @@ if LUI and type(LUI.onmenuopen) == "function" then
         end)
     end
 end
+
+-- Last line of the module: seeing this proves every registration above ran.
+print("[Agent IPC] Bridge registered")

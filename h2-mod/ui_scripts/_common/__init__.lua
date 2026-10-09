@@ -73,8 +73,17 @@ function M.SetDvarBool(dvar, value)
     end
 end
 
--- An unregistered dvar reads back nil, so this answers false rather than
--- letting `nil` reach a concatenation and take the dispatcher down with it.
+-- CALLER'S RESPONSIBILITY: `dvar` must already be registered.
+--
+-- These two are only as safe as the name handed to them. Reading a name that
+-- was never registered faults inside the native accessor (0xC0000005) and kills
+-- the game -- it does NOT return nil, and no amount of guarding here can help,
+-- because the fault happens inside the call. Register by writing first (see
+-- register_player_state_dvars below) and never pass a name you are unsure of.
+--
+-- The nil guards below are for a registered dvar whose value is unset, which is
+-- a different and survivable case: nil reaching a `..` is a Lua error that
+-- surfaces out of the LUI dispatcher as an access violation.
 function M.GetDvarBool(dvar)
     if type(Engine.GetDvarBool) ~= "function" then
         return false

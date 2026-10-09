@@ -609,3 +609,8 @@ if LUI.onmenuopen then
         end)
     end)
 end
+
+-- Last line of the module, so seeing it in the console means every registration
+-- above ran. Without it, a silent load is indistinguishable from the early
+-- `return` on a missing _common.
+print("[Overlord Cheats] Cheats & Sandbox menu registered")

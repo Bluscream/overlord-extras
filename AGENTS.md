@@ -106,6 +106,29 @@ necessarily present.
   failure cannot re-fire it next tick, and cleared at thread start so a stale
   value cannot carry across levels.
 - Allman braces, 4 spaces, matching the stock scripts.
+- **There is no error handling.** GSC has no `pcall`. A call on an undefined
+  value is not catchable — it takes the script system down. `isdefined()` is the
+  only tool, so guard rather than hope.
+- `setdvar()` **creates** the name. Any dvar a script publishes must be
+  `setdvar()`'d at thread start, before anything can read it, because reading an
+  unregistered name crashes the game (§3). `player_state.gsc` does this for all
+  eight `overlord_ps_*` names.
+- Poll and publish as slowly as the task tolerates. This is VR; the frame budget
+  is halved. 20Hz for a command channel that must feel instant
+  (`actor_spawner`), 4Hz for state nobody reads per frame (`player_state`).
+- A new `.gsc` file must be added to `GSC_SCRIPTS` in `overlord.sh`, or
+  `uninstall` will leave it behind and `status` will not report it.
+
+### GSC checklist
+
+1. Runtime work in `init()`, precache in `main()`.
+2. Locals declared before any `if` that a later block reads.
+3. `endon` registered before the first `wait`; every loop has a `wait`.
+4. `isdefined()` after every `wait`, on everything you did not just set.
+5. Every published dvar `setdvar()`'d before first read.
+6. Shared `level.*` state prefixed `overlord_` and restored if borrowed.
+7. `gsc-tool --mode comp` passes — not `--mode parse`.
+8. Listed in `GSC_SCRIPTS`.
 
 ---
 
@@ -305,6 +328,41 @@ Modelled on `achievements/toast.lua`, which is known to work:
 
 Wrap UI work in `pcall`. A cosmetic failure must never break the button that
 raised it.
+
+### Every module announces itself
+
+The **last** line of a module is a `print` banner. Put it last so that seeing it
+in the console proves every registration above it ran — a banner at the top only
+proves the file was opened. Together with the loud early `return` on a missing
+`_common`, this makes the console log self-diagnosing: for each module you see
+either the banner, or the reason it bailed, never silence.
+
+```lua
+print("[Overlord Cheats] Cheats & Sandbox menu registered")
+```
+
+`cheats` had no banner until 2026-10-09, and a successful load was
+indistinguishable from an early return.
+
+### Lua / LUI checklist
+
+1. `local common = _G.OverlordCommon`, loud `return` if absent, then
+   `common.Claim(name)`.
+2. Dvars registered **by writing**; never probed, not even via
+   `GetDvarType` (§3 "Never read a dvar that might not exist").
+3. Every `Engine.*` call feature-tested with `type(...) == "function"`.
+4. `game:method()` — colon, never `game.method()`.
+5. Buttons via `common.AddButton`; no raw `menu:AddButton` outside `_common`.
+6. Another module's dvars and globals read **inside callbacks only**, never at
+   load time.
+7. UI work wrapped in `pcall`.
+8. `string.format("%s", v)` over `..` for anything nilable.
+9. Module `print` banner on the last line.
+10. New module directory added to `UI_SCRIPT_MODULES` in `overlord.sh`.
+11. `luacheck` and `luac5.1` clean via the gate.
+
+Code sent over the IPC bridge is **one line** — the bridge is line-oriented and
+rejects embedded newlines rather than silently truncating.
 
 ---
 

@@ -17,6 +17,18 @@ local Button = common.AddButton
 
 print("[Overlord Extras] Initializing modular VR settings menu...")
 
+-- This module owns overlord_cheats_enabled; ui_scripts/cheats only reads it.
+--
+-- Registered unconditionally, by writing, at load time. The previous version
+-- used `not Engine.GetDvarType(name)` to register only when absent -- but that
+-- is itself a read of a possibly-unregistered name, which is the operation that
+-- faults in the native accessor. Writing is always safe; asking is not.
+--
+-- `set`, not `seta`: a cheat gate should start locked every launch rather than
+-- persist into the player's config. Registering here at load rather than in
+-- buildCheatsOptions means re-opening the menu does not re-lock it mid-session.
+common.Exec("set overlord_cheats_enabled 0")
+
 -- ============================================================
 -- Section: VR Camera & Comfort
 -- ============================================================
@@ -219,13 +231,6 @@ end
 
 local function buildCheatsOptions(menu)
     createDivider(menu, "Sandbox & Cheats")
-
-    -- This module owns the dvar; ui_scripts/cheats only ever reads it. Register
-    -- it before anything reads it, because an unregistered dvar returns nil and
-    -- `nil .. string` takes the LUI dispatcher down with an access violation.
-    if type(Engine.GetDvarType) == "function" and not Engine.GetDvarType("overlord_cheats_enabled") then
-        common.Exec("seta overlord_cheats_enabled 0")
-    end
 
     local function getCheatsEnabledText()
         if common.GetDvarBool("overlord_cheats_enabled") then
