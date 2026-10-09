@@ -20,6 +20,7 @@ local ExecCmd = common.Exec
 local ExecCmdNotify = common.ExecNotify
 local SetChoice = common.AddChoiceButton
 local createDivider = common.CreateDivider
+local Button = common.AddButton
 local IsCheatsUnlocked = function()
     -- overlord_extras registers and owns this dvar; this module only reads it.
     return common.GetDvarBool("overlord_cheats_enabled")
@@ -231,23 +232,19 @@ local NPCS_AND_CHARACTERS = {
 local function PopulateWeaponList(menu, list)
     for _, item in ipairs(list) do
         local where = item.carry and CARRY_TEXT[item.carry]
-        menu:AddButton(item.name, function()
+        Button(menu, item.name, item.desc .. ". " .. (where or "")
+                .. " [give " .. item.id .. "]", function()
             ExecCmdNotify("give " .. item.id, "Given: " .. item.name)
-        end, nil, true, nil, {
-            desc_text = item.desc .. ". " .. (where or "")
-                .. " [give " .. item.id .. "]"
-        })
+        end)
     end
 end
 
 -- Populate model spawn menu helper
 local function PopulateModelList(menu, list)
     for _, item in ipairs(list) do
-        menu:AddButton(item.name, function()
+        Button(menu, item.name, item.desc .. " [static model: spawn_xmodel " .. item.id .. "]", function()
             ExecCmdNotify("spawn_xmodel " .. item.id, "Placed: " .. item.name)
-        end, nil, true, nil, {
-            desc_text = item.desc .. " [static model: spawn_xmodel " .. item.id .. "]"
-        })
+        end)
     end
 end
 
@@ -315,11 +312,9 @@ end)
 LUI.MenuBuilder.registerType("cheats_models_menu", function(root)
     return CreateSubmenu(root, "Place Prop Models (Static)", function(menu, div)
         div(menu, "Scene Cleanup")
-        menu:AddButton("^1[CLEAR ALL SPAWNED MODELS]^7", function()
+        Button(menu, "^1[CLEAR ALL SPAWNED MODELS]^7", "Remove all models spawned into the scene", function()
             ExecCmdNotify("clear_spawned_xmodels", "Cleared placed models")
-        end, nil, true, nil, {
-            desc_text = "Remove all models spawned into the scene"
-        })
+        end)
 
         div(menu, "Mission Props (Static, No Collision)")
         PopulateModelList(menu, MODELS_MISSION_ITEMS)
@@ -344,11 +339,9 @@ LUI.MenuBuilder.registerType("cheats_characters_menu", function(root)
             "Requested random combatant")
 
         div(menu, "Static Character Models (No AI)")
-        menu:AddButton("^1[CLEAR ALL SPAWNED 3D MODELS]^7", function()
+        Button(menu, "^1[CLEAR ALL SPAWNED 3D MODELS]^7", "Remove all static 3D models spawned into the scene", function()
             ExecCmdNotify("clear_spawned_xmodels", "Cleared placed models")
-        end, nil, true, nil, {
-            desc_text = "Remove all static 3D models spawned into the scene"
-        })
+        end)
 
         PopulateModelList(menu, NPCS_AND_CHARACTERS)
     end)
@@ -387,9 +380,7 @@ LUI.MenuBuilder.registerType("cheats_mission_weapons_menu", function(root)
     return CreateSubmenu(root, "Active Mission Weapons", function(menu)
         local weapons, err = MissionWeaponNames()
         if not weapons then
-            menu:AddButton("^1Asset list unavailable^7", function() end, nil, true, nil, {
-                desc_text = err
-            })
+            Button(menu, "^1Asset list unavailable^7", err, function() end)
             return
         end
 
@@ -403,18 +394,14 @@ LUI.MenuBuilder.registerType("cheats_mission_weapons_menu", function(root)
                 seen[wpn] = true
                 shown = shown + 1
                 local label = MissionWeaponLabel(wpn)
-                menu:AddButton(label, function()
+                Button(menu, label, "Spawn active weapon: " .. wpn, function()
                     ExecCmdNotify("give " .. wpn, "Given: " .. label)
-                end, nil, true, nil, {
-                    desc_text = "Spawn active weapon: " .. wpn
-                })
+                end)
             end
         end
 
         if shown == 0 then
-            menu:AddButton("^1No weapons loaded in this level^7", function() end, nil, true, nil, {
-                desc_text = "The asset list returned nothing this level loads."
-            })
+            Button(menu, "^1No weapons loaded in this level^7", "The asset list returned nothing this level loads.", function() end)
         end
     end)
 end)
@@ -434,90 +421,72 @@ LUI.MenuBuilder.registerType("cheats_armory_menu", function(root)
         -- shipped Engine surface that reports how many you are carrying, so
         -- this cannot show a live count -- it just keeps the remedy one press
         -- away from the buttons that cause the problem.
-        menu:AddButton("^1[CLEAR INVENTORY - TAKE ALL WEAPONS]^7", function()
-            ExecCmdNotify("take all", "Removed all weapons")
-        end, nil, true, nil, {
-            desc_text = "Empties your hands and every holster. The game caps "
+        Button(menu, "^1[CLEAR INVENTORY - TAKE ALL WEAPONS]^7", "Empties your hands and every holster. The game caps "
                 .. "you at 15 owned weapons; past that, newly given weapons "
-                .. "stop being placed at all. Clear here if guns stop appearing."
-        })
+                .. "stop being placed at all. Clear here if guns stop appearing.", function()
+            ExecCmdNotify("take all", "Removed all weapons")
+        end)
 
         div(menu, "Fits a Hip Holster")
-        menu:AddButton("^5Handguns & Machine Pistols^7", function()
-            LUI.FlowManager.RequestAddMenu(nil, "cheats_handgun_menu")
-        end, nil, true, nil, {
-            desc_text = "M9, USP .45, .44 Magnum, Desert Eagle, M1911, G18, "
+        Button(menu, "^5Handguns & Machine Pistols^7", "M9, USP .45, .44 Magnum, Desert Eagle, M1911, G18, "
                 .. "TMP, PP2000. All reach a waist holster, except the M93 "
-                .. "Raffica, which goes on your back."
-        })
+                .. "Raffica, which goes on your back.", function()
+            LUI.FlowManager.RequestAddMenu(nil, "cheats_handgun_menu")
+        end)
 
-        menu:AddButton("^4Special Melee & Knives^7", function()
-            LUI.FlowManager.RequestAddMenu(nil, "cheats_melee_menu")
-        end, nil, true, nil, {
-            desc_text = "The three commando knives reach a waist holster. The "
+        Button(menu, "^4Special Melee & Knives^7", "The three commando knives reach a waist holster. The "
                 .. "ice picks, pickaxe and riot shield do not -- they are "
-                .. "outside VR carry entirely."
-        })
+                .. "outside VR carry entirely.", function()
+            LUI.FlowManager.RequestAddMenu(nil, "cheats_melee_menu")
+        end)
 
         div(menu, "Back Slot Only")
-        menu:AddButton("^3Assault Rifles^7", function()
+        Button(menu, "^3Assault Rifles^7", "M4A1, AK-47, SCAR-H, ACR, FAMAS, M16A4, FAL, TAR-21, F2000.", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_ar_menu")
-        end, nil, true, nil, { desc_text = "M4A1, AK-47, SCAR-H, ACR, FAMAS, M16A4, FAL, TAR-21, F2000." })
+        end)
 
-        menu:AddButton("^3Submachine Guns^7", function()
-            LUI.FlowManager.RequestAddMenu(nil, "cheats_smg_menu")
-        end, nil, true, nil, {
-            desc_text = "UMP45, MP5K, P90 and the Vector go on your back; only "
+        Button(menu, "^3Submachine Guns^7", "UMP45, MP5K, P90 and the Vector go on your back; only "
                 .. "the Mini-Uzi reaches a hip. A native SMG category is not a "
-                .. "waist permit."
-        })
+                .. "waist permit.", function()
+            LUI.FlowManager.RequestAddMenu(nil, "cheats_smg_menu")
+        end)
 
-        menu:AddButton("^3Shotguns^7", function()
+        Button(menu, "^3Shotguns^7", "SPAS-12, AA-12, M1014, Striker, Model 1887 and W1200 "
+                .. "go on your back; only the Ranger reaches a hip.", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_shotgun_menu")
-        end, nil, true, nil, {
-            desc_text = "SPAS-12, AA-12, M1014, Striker, Model 1887 and W1200 "
-                .. "go on your back; only the Ranger reaches a hip."
-        })
+        end)
 
-        menu:AddButton("^3Light Machine Guns^7", function()
+        Button(menu, "^3Light Machine Guns^7", "RPD, M240, MG4, AUG HBAR, L86 LSW.", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_lmg_menu")
-        end, nil, true, nil, { desc_text = "RPD, M240, MG4, AUG HBAR, L86 LSW." })
+        end)
 
-        menu:AddButton("^3Sniper & Marksman Rifles^7", function()
+        Button(menu, "^3Sniper & Marksman Rifles^7", "Intervention, Barrett .50cal, M14 EBR, Dragunov, WA2000.", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_sniper_menu")
-        end, nil, true, nil, { desc_text = "Intervention, Barrett .50cal, M14 EBR, Dragunov, WA2000." })
+        end)
 
-        menu:AddButton("^5Launchers & Heavy^7", function()
-            LUI.FlowManager.RequestAddMenu(nil, "cheats_launcher_menu")
-        end, nil, true, nil, {
-            desc_text = "RPG-7, M79 Thumper, and the AT4, Javelin and Stinger. "
+        Button(menu, "^5Launchers & Heavy^7", "RPG-7, M79 Thumper, and the AT4, Javelin and Stinger. "
                 .. "Those last three are right-hand-fires-only: the left hand "
-                .. "can support but not shoot."
-        })
+                .. "can support but not shoot.", function()
+            LUI.FlowManager.RequestAddMenu(nil, "cheats_launcher_menu")
+        end)
 
         div(menu, "Native Equipment Slots")
-        menu:AddButton("^4Mission & Story Items^7", function()
-            LUI.FlowManager.RequestAddMenu(nil, "cheats_mission_menu")
-        end, nil, true, nil, {
-            desc_text = "AGM/Predator laptop, C4, claymores, flare, sentry and "
+        Button(menu, "^4Mission & Story Items^7", "AGM/Predator laptop, C4, claymores, flare, sentry and "
                 .. "airdrop markers stay in their native equipment slots. The "
-                .. "laser designator gets its own abdominal slot."
-        })
+                .. "laser designator gets its own abdominal slot.", function()
+            LUI.FlowManager.RequestAddMenu(nil, "cheats_mission_menu")
+        end)
 
-        menu:AddButton("^6Throwables & Fun Cheats^7", function()
+        Button(menu, "^6Throwables & Fun Cheats^7", "Frag, Semtex, Flash, Smoke, Pomegranate and Football. "
+                .. "Grenades are outside VR carry and use the native offhand.", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_throwable_menu")
-        end, nil, true, nil, {
-            desc_text = "Frag, Semtex, Flash, Smoke, Pomegranate and Football. "
-                .. "Grenades are outside VR carry and use the native offhand."
-        })
+        end)
 
         div(menu, "Mission Inventory Inspection")
-        menu:AddButton("^2[ACTIVE MISSION WEAPONS (AUTO-DETECT)]^7", function()
+        Button(menu, "^2[ACTIVE MISSION WEAPONS (AUTO-DETECT)]^7", "Every weapon asset the current level actually loaded. "
+                .. "Names outside this list may not exist in this mission.", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_mission_weapons_menu")
-        end, nil, true, nil, {
-            desc_text = "Every weapon asset the current level actually loaded. "
-                .. "Names outside this list may not exist in this mission."
-        })
+        end)
     end)
 end)
 
@@ -526,16 +495,12 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
     local isUnlocked = IsCheatsUnlocked()
     if not isUnlocked then
         return CreateSubmenu(root, "Cheats Locked", function(menu)
-            menu:AddButton("^1Cheats are currently disabled^7", function()
+            Button(menu, "^1Cheats are currently disabled^7", "Open Overlord Extras and toggle 'Enable Cheats Menu' to unlock.", function()
                 LUI.FlowManager.RequestAddMenu(nil, "overlord_extras_menu")
-            end, nil, true, nil, {
-                desc_text = "Open Overlord Extras and toggle 'Enable Cheats Menu' to unlock."
-            })
-            menu:AddButton("Open VR Extras Menu", function()
+            end)
+            Button(menu, "Open VR Extras Menu", "Configure VR settings and unlock developer cheats", function()
                 LUI.FlowManager.RequestAddMenu(nil, "overlord_extras_menu")
-            end, nil, true, nil, {
-                desc_text = "Configure VR settings and unlock developer cheats"
-            })
+            end)
         end)
     end
 
@@ -564,13 +529,13 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
         -- toggles and nothing re-applies them behind the menu's back.
         -- noclip prints its own "noclip ON/OFF" from C++ (command.cpp), so a
         -- toast here would duplicate it. ufo has no such message.
-        menu:AddButton("^5Toggle Noclip^7", function()
+        Button(menu, "^5Toggle Noclip^7", "Toggle noclip through walls and terrain (noclip)", function()
             ExecCmd("noclip")
-        end, nil, true, nil, { desc_text = "Toggle noclip through walls and terrain (noclip)" })
+        end)
 
-        menu:AddButton("^5Toggle UFO Mode^7", function()
+        Button(menu, "^5Toggle UFO Mode^7", "Toggle free flight camera movement (ufo)", function()
             ExecCmdNotify("ufo", "Toggled UFO mode")
-        end, nil, true, nil, { desc_text = "Toggle free flight camera movement (ufo)" })
+        end)
 
         div(menu, "Sustained Ammunition")
         SetChoice(menu, "^3Sustained Ammo: Infinite^7", CHEAT_AMMO_DVAR, "infinite",
@@ -584,46 +549,42 @@ LUI.MenuBuilder.registerType("cheats_menu", function(root)
             "Sustained ammo: off")
 
         div(menu, "One-Shot Refills")
-        menu:AddButton("^2Refill Max Health^7", function()
+        Button(menu, "^2Refill Max Health^7", "Instantly restore player health to 100%", function()
             ExecCmdNotify("give health", "Health restored")
-        end, nil, true, nil, { desc_text = "Instantly restore player health to 100%" })
+        end)
 
-        menu:AddButton("^3Refill Current Ammo^7", function()
+        Button(menu, "^3Refill Current Ammo^7", "Refill magazines and reserve ammo for current weapon", function()
             ExecCmdNotify("give ammo", "Ammo refilled")
-        end, nil, true, nil, { desc_text = "Refill magazines and reserve ammo for current weapon" })
+        end)
 
-        menu:AddButton("^3Refill All Weapons Ammo^7", function()
+        Button(menu, "^3Refill All Weapons Ammo^7", "Refill ammo for all carried weapons and modules", function()
             ExecCmdNotify("give allammo", "Ammo refilled for all weapons")
-        end, nil, true, nil, { desc_text = "Refill ammo for all carried weapons and modules" })
+        end)
 
         div(menu, "Armory & Entity Spawners")
-        menu:AddButton("^6[ARMORY (WEAPONS & ITEMS)]^7", function()
+        Button(menu, "^6[ARMORY (WEAPONS & ITEMS)]^7", "Browse and spawn every weapon, launcher, and item in the game", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_armory_menu")
-        end, nil, true, nil, { desc_text = "Browse and spawn every weapon, launcher, and item in the game" })
+        end)
 
-        menu:AddButton("^4[SPAWN CHARACTERS & LIVING AI]^7", function()
+        Button(menu, "^4[SPAWN CHARACTERS & LIVING AI]^7", "Spawn living combat AI, or place static character models with no AI", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_characters_menu")
-        end, nil, true, nil, { desc_text = "Spawn living combat AI, or place static character models with no AI" })
+        end)
 
-        menu:AddButton("^4[PLACE PROP MODELS (STATIC)]^7", function()
+        Button(menu, "^4[PLACE PROP MODELS (STATIC)]^7", "Place static models in front of you: laptops, briefcase, "
+                .. "DSM, UAV, ice picks. No collision or physics.", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_models_menu")
-        end, nil, true, nil, {
-            desc_text = "Place static models in front of you: laptops, briefcase, "
-                .. "DSM, UAV, ice picks. No collision or physics."
-        })
+        end)
 
         div(menu, "Inventory Control")
-        menu:AddButton("^1Drop Current Weapon^7", function()
+        Button(menu, "^1Drop Current Weapon^7", "Drop the currently active weapon onto the ground", function()
             ExecCmdNotify("dropweapon", "Dropped current weapon")
-        end, nil, true, nil, { desc_text = "Drop the currently active weapon onto the ground" })
+        end)
 
-        menu:AddButton("^1Take All Weapons^7", function()
-            ExecCmdNotify("take all", "Removed all weapons")
-        end, nil, true, nil, {
-            desc_text = "Empty your hands and every holster. Also the fix when "
+        Button(menu, "^1Take All Weapons^7", "Empty your hands and every holster. Also the fix when "
                 .. "given weapons stop appearing: the game owns at most 15 at "
-                .. "once, and past that the carry system stops placing them."
-        })
+                .. "once, and past that the carry system stops placing them.", function()
+            ExecCmdNotify("take all", "Removed all weapons")
+        end)
     end)
 end)
 
@@ -637,18 +598,14 @@ if LUI.onmenuopen then
 
         local isUnlocked = IsCheatsUnlocked()
         if not isUnlocked then
-            menu:AddButton("^1CHEATS (LOCKED)^7", function()
+            Button(menu, "^1CHEATS (LOCKED)^7", "Cheats are locked. Go to VR EXTRAS to toggle 'Enable Cheats Menu'.", function()
                 LUI.FlowManager.RequestAddMenu(nil, "overlord_extras_menu")
-            end, nil, true, nil, {
-                desc_text = "Cheats are locked. Go to VR EXTRAS to toggle 'Enable Cheats Menu'."
-            })
+            end)
             return
         end
 
-        menu:AddButton("^3CHEATS^7", function()
+        Button(menu, "^3CHEATS^7", "Access godmode, noclip, ammo refills, weapons, and entity spawner", function()
             LUI.FlowManager.RequestAddMenu(nil, "cheats_menu")
-        end, nil, true, nil, {
-            desc_text = "Access godmode, noclip, ammo refills, weapons, and entity spawner"
-        })
+        end)
     end)
 end

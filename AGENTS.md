@@ -244,6 +244,22 @@ if not common.Claim("X") then return end
 local Toast = common.Toast
 ```
 
+**Never call `menu:AddButton` directly.** Its real signature is positional and
+mostly `nil` — `(label, callback, nil, true, nil, { desc_text = ... })` — and
+only two of those six arguments ever vary here. Every call site goes through
+`common.AddButton`, conventionally bound as `local Button = common.AddButton`:
+
+```lua
+Button(menu, "^3Assault Rifles^7", "M4A1, AK-47, SCAR-H, ...", function()
+    LUI.FlowManager.RequestAddMenu(nil, "cheats_ar_menu")
+end)
+```
+
+Note the description comes **before** the callback, which is the opposite of the
+underlying call. `_common/__init__.lua` holds the one remaining raw
+`menu:AddButton` — the helper's own body. A `grep -rn ':AddButton(' h2-mod/`
+turning up a second hit means a call site was added by hand.
+
 **Fail loudly, never degrade silently** — a half-registered menu is worse than
 one that says why it is absent. If you add a module that must load before
 `_common`, the underscore trick stops being enough and the binding has to become

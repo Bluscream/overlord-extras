@@ -13,6 +13,7 @@ if not common.Claim("Extras") then return end
 
 local createDivider = common.CreateDivider
 local Toast = common.Toast
+local Button = common.AddButton
 
 print("[Overlord Extras] Initializing modular VR settings menu...")
 
@@ -298,11 +299,9 @@ if LUI.onmenuopen then
         local pauseMenu = element:getFirstChild()
         if not pauseMenu or not pauseMenu.AddButton then return end
 
-        pauseMenu:AddButton("^2VR EXTRAS^7", function()
+        Button(pauseMenu, "^2VR EXTRAS^7", "Live VR comfort, camera bob, reload physics, and renderer settings", function()
             LUI.FlowManager.RequestAddMenu(nil, "overlord_extras_menu")
-        end, nil, true, nil, {
-            desc_text = "Live VR comfort, camera bob, reload physics, and renderer settings"
-        })
+        end)
     end)
 end
 
